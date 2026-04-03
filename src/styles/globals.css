@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand: #FF385C;
+}
+
+body {
+  @apply bg-surface-soft text-txt antialiased;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #bbb; }
+
+.sidebar-item {
+  @apply flex flex-col items-start px-3 py-2 mx-1 mb-0.5 rounded-lg border border-transparent
+         cursor-pointer text-left w-[calc(100%-8px)] transition-all duration-150;
+}
+.sidebar-item:hover { @apply bg-surface-soft; }
+.sidebar-item.active {
+  @apply bg-brand-bg border-brand;
+}
+
+.top-pill {
+  @apply px-3 py-1.5 rounded-full border border-surface-muted text-txt-secondary
+         font-semibold text-xs cursor-pointer whitespace-nowrap flex items-center gap-1
+         transition-all duration-150 bg-white;
+}
+.top-pill:hover { @apply border-txt-secondary; }
+.top-pill.active {
+  @apply border-brand bg-brand/10 text-brand;
+}
