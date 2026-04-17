@@ -66,18 +66,25 @@ export async function GET() {
         .sort((a: number, b: number) => b - a)
         .slice(0, 50);
 
-      // Try streaming fetch first (more reliable than fetchOne per UID).
+      // Try both fetchOne (per-UID) and streaming fetch; log exhaustively.
+      let streamIterations = 0;
       try {
         for await (const msg of client.fetch(
-          recent.map(String).join(","),
+          recent,
           { source: true, envelope: true, internalDate: true },
           { uid: true }
         )) {
+          streamIterations++;
           const uid = (msg.uid as number) ?? 0;
-          if (!msg || !msg.source) {
-            debugErrors.push(`uid ${uid}: no source returned`);
-            continue;
-          }
+          const hasSource = !!msg.source;
+          const sourceLen = msg.source ? msg.source.length : 0;
+          debugErrors.push(
+            `stream uid=${uid} hasSource=${hasSource} len=${sourceLen} envSubject=${JSON.stringify(
+              msg.envelope?.subject
+            )}`
+          );
+
+          if (!msg.source) continue;
 
           let parsed;
           try {
@@ -112,7 +119,38 @@ export async function GET() {
           });
         }
       } catch (fetchErr) {
-        debugErrors.push(`stream fetch failed: ${String(fetchErr)}`);
+        debugErrors.push(`stream fetch threw: ${String(fetchErr)}`);
+      }
+      debugErrors.push(`stream yielded ${streamIterations} iterations for ${recent.length} UIDs`);
+
+      // Fallback: try fetchOne on each UID individually (envelope-only, no source).
+      if (results.length === 0 && recent.length > 0) {
+        for (const uid of recent) {
+          try {
+            const msg = await client.fetchOne(
+              String(uid),
+              { envelope: true, internalDate: true },
+              { uid: true }
+            );
+            if (!msg) {
+              debugErrors.push(`fetchOne uid=${uid} returned null/undefined`);
+              continue;
+            }
+            const env = msg.envelope;
+            const fromFirst = env?.from?.[0];
+            const toFirst = env?.to?.[0];
+            results.push({
+              uid: uid as number,
+              date: new Date(msg.internalDate || new Date()).toISOString(),
+              from: fromFirst?.address || "",
+              to: toFirst?.address || "",
+              deliveredTo: null,
+              subject: env?.subject || "",
+            });
+          } catch (e) {
+            debugErrors.push(`fetchOne uid=${uid} threw: ${String(e)}`);
+          }
+        }
       }
     } finally {
       lock.release();
