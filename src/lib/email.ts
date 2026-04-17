@@ -174,7 +174,7 @@ export async function fetchRecentEmails(maxResults: number = 20): Promise<Fetche
         if (!msg || !msg.source) continue;
         let parsed: ParsedMail;
         try { parsed = await simpleParser(msg.source); } catch (err) { console.error("mailparser failed for UID", uid, err); continue; }
-        const fromAddr = parsed.from?.value?.[0]?.address || parsed.from?.text || (msg.envelope?.from?.[0] ? `${msg.envelope.from[0].mailbox}@${msg.envelope.from[0].host}` : "");
+        const fromAddr = parsed.from?.value?.[0]?.address || parsed.from?.text || msg.envelope?.from?.[0]?.address || "";
         const subject = parsed.subject || msg.envelope?.subject || "";
         const body = parsed.text || (parsed.html ? stripHtml(String(parsed.html)) : "") || "";
         const receivedAt = (parsed.date || msg.internalDate || new Date()).toISOString();
