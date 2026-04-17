@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { useProperties } from "@/lib/hooks";
 import { TodayTab } from "@/components/tabs/TodayTab";
@@ -9,34 +9,43 @@ import { MessagesTab } from "@/components/tabs/MessagesTab";
 import { SettingsTab } from "@/components/tabs/SettingsTab";
 import { InboxTab } from "@/components/tabs/InboxTab";
 import { ListingsTab } from "@/components/tabs/ListingsTab";
+import { PortfolioCalendarTab } from "@/components/tabs/PortfolioCalendarTab";
 import { StatusBadge } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { AddPropertyModal } from "@/components/modals/AddPropertyModal";
+import { ProfileMenu } from "@/components/ProfileMenu";
 
 const PORTFOLIO_TABS = [
   { id: "today", label: "Today", icon: "dashboard" },
+  { id: "messages", label: "Messages", icon: "chat" },
+  { id: "calendar", label: "Calendar", icon: "calendar_today" },
   { id: "listings", label: "Listings", icon: "holiday_village" },
   { id: "inbox", label: "Inbox", icon: "inbox" },
-  { id: "messages", label: "Messages", icon: "chat" },
-  { id: "settings", label: "Settings", icon: "settings" },
 ];
 
 export function DashboardShell() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: properties, loading, refetch } = useProperties();
   const [activeTab, setActiveTab] = useState("today");
   const [showAddModal, setShowAddModal] = useState(false);
 
+  // Allow ?settings=1 to open Settings directly (used by ProfileMenu from
+  // other shells that redirect home).
+  useEffect(() => {
+    if (searchParams?.get("settings") === "1") setActiveTab("settings");
+  }, [searchParams]);
+
   return (
     <div className="h-screen flex flex-col font-sans bg-surface-soft text-txt">
-      <header className="flex items-center justify-between px-4 py-2 bg-white border-b border-surface-muted flex-shrink-0">
+      <header className="flex items-center gap-4 px-4 py-2 bg-white border-b border-surface-muted flex-shrink-0">
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center text-white font-extrabold text-sm">
             R
           </div>
           <span className="font-extrabold text-base">ROOST</span>
         </div>
-        <div className="flex gap-1 overflow-x-auto flex-1 justify-center ml-4">
+        <div className="flex gap-1 overflow-x-auto flex-1 justify-center">
           {PORTFOLIO_TABS.map((tab) => (
             <button
               key={tab.id}
@@ -47,6 +56,9 @@ export function DashboardShell() {
               {tab.label}
             </button>
           ))}
+        </div>
+        <div className="flex-shrink-0">
+          <ProfileMenu onOpenSettings={() => setActiveTab("settings")} />
         </div>
       </header>
 
@@ -109,9 +121,10 @@ export function DashboardShell() {
 
         <main className="flex-1 overflow-y-auto p-5">
           {activeTab === "today" && <TodayTab />}
+          {activeTab === "messages" && <MessagesTab />}
+          {activeTab === "calendar" && <PortfolioCalendarTab />}
           {activeTab === "listings" && <ListingsTab />}
           {activeTab === "inbox" && <InboxTab />}
-          {activeTab === "messages" && <MessagesTab />}
           {activeTab === "settings" && <SettingsTab />}
         </main>
       </div>

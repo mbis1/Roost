@@ -7,6 +7,7 @@ import { useProperties } from "@/lib/hooks";
 import { StatusBadge } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { AddPropertyModal } from "@/components/modals/AddPropertyModal";
+import { ProfileMenu } from "@/components/ProfileMenu";
 import { PropertyHub } from "@/components/property/PropertyHub";
 import { MessagesTab } from "@/components/tabs/MessagesTab";
 import { CalendarTab } from "@/components/tabs/CalendarTab";
@@ -31,7 +32,7 @@ export function PropertyShell({ propertyId }: { propertyId: string }) {
 
   return (
     <div className="h-screen flex flex-col font-sans bg-surface-soft text-txt">
-      <header className="flex items-center justify-between px-4 py-2 bg-white border-b border-surface-muted flex-shrink-0">
+      <header className="flex items-center gap-4 px-4 py-2 bg-white border-b border-surface-muted flex-shrink-0">
         <button
           onClick={() => router.push("/")}
           className="flex items-center gap-2 flex-shrink-0 cursor-pointer"
@@ -41,7 +42,7 @@ export function PropertyShell({ propertyId }: { propertyId: string }) {
           </div>
           <span className="font-extrabold text-base">ROOST</span>
         </button>
-        <div className="flex gap-1 overflow-x-auto flex-1 justify-center ml-4">
+        <div className="flex gap-1 overflow-x-auto flex-1 justify-center">
           {PROPERTY_TABS.map((tab) => (
             <button
               key={tab.id}
@@ -52,6 +53,9 @@ export function PropertyShell({ propertyId }: { propertyId: string }) {
               {tab.label}
             </button>
           ))}
+        </div>
+        <div className="flex-shrink-0">
+          <ProfileMenu onOpenSettings={() => router.push("/?settings=1")} />
         </div>
       </header>
 
