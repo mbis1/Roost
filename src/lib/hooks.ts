@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Property, PropertyRules, ListingSettings, CalendarFeed, Message, MessageThread, Vendor, Task, UserSettings, Email } from "@/lib/supabase";
+import type { Property, PropertyRules, PropertyDetails, ListingSettings, CalendarFeed, Message, MessageThread, Vendor, Task, UserSettings, Email } from "@/lib/supabase";
 
 function useSupabaseQuery<T>(table: string, filter?: { column: string; value: string }) {
   const [data, setData] = useState<T[]>([]);
@@ -23,6 +23,92 @@ function useSupabaseQuery<T>(table: string, filter?: { column: string; value: st
 
 export function useProperties() {
   return useSupabaseQuery<Property>("properties");
+}
+
+export function useProperty(propertyId: string | null | undefined) {
+  const [data, setData] = useState<Property | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const refetch = useCallback(async () => {
+    if (!propertyId) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const { data: row, error } = await supabase
+      .from("properties")
+      .select("*")
+      .eq("id", propertyId)
+      .maybeSingle();
+    if (!error && row) setData(row as Property);
+    setLoading(false);
+  }, [propertyId]);
+
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  return { data, loading, refetch };
+}
+
+/**
+ * Reads all property_details rows for a given property and returns them as
+ * an object keyed by section name. Each section's jsonb blob is returned
+ * as-is. Upsert via `save(section, data)`.
+ */
+export function usePropertyDetails(propertyId: string | null | undefined) {
+  const [rows, setRows] = useState<PropertyDetails[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refetch = useCallback(async () => {
+    if (!propertyId) {
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("property_details")
+      .select("*")
+      .eq("property_id", propertyId);
+    if (!error && data) setRows(data as PropertyDetails[]);
+    setLoading(false);
+  }, [propertyId]);
+
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  const bySection = useMemo(() => {
+    const map: Record<string, Record<string, unknown>> = {};
+    for (const r of rows) map[r.section] = r.data || {};
+    return map;
+  }, [rows]);
+
+  const save = useCallback(
+    async (section: string, data: Record<string, unknown>) => {
+      if (!propertyId) return;
+      const { error } = await supabase
+        .from("property_details")
+        .upsert(
+          {
+            property_id: propertyId,
+            section,
+            data,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "property_id,section" }
+        );
+      if (error) {
+        console.error("save property_details error:", error);
+      }
+      await refetch();
+    },
+    [propertyId, refetch]
+  );
+
+  return { rows, bySection, loading, refetch, save };
 }
 
 export function usePropertyRules(propertyId: string) {
@@ -55,7 +141,11 @@ export function useTasks(propertyId?: string) {
   return useSupabaseQuery<Task>("tasks", filter);
 }
 
-export function useEmails(options?: { primaryTag?: string; orderAsc?: boolean }) {
+export function useEmails(options?: {
+  primaryTag?: string;
+  propertyId?: string | null;
+  orderAsc?: boolean;
+}) {
   const [data, setData] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -63,17 +153,29 @@ export function useEmails(options?: { primaryTag?: string; orderAsc?: boolean })
     setLoading(true);
     let q = supabase.from("emails").select("*");
     if (options?.primaryTag) q = q.eq("primary_tag", options.primaryTag);
+    if (options?.propertyId) q = q.eq("property_id", options.propertyId);
     q = q.order("received_at", { ascending: options?.orderAsc ?? false });
     const { data: result, error } = await q;
     if (!error && result) setData(result as Email[]);
     setLoading(false);
-  }, [options?.primaryTag, options?.orderAsc]);
+  }, [options?.primaryTag, options?.propertyId, options?.orderAsc]);
 
   useEffect(() => {
     refetch();
   }, [refetch]);
 
   return { data, loading, refetch, setData };
+}
+
+export async function assignEmailToProperty(
+  emailId: string,
+  propertyId: string | null
+) {
+  const { error } = await supabase
+    .from("emails")
+    .update({ property_id: propertyId })
+    .eq("id", emailId);
+  if (error) console.error("assignEmailToProperty error:", error);
 }
 
 export function useUserSettings() {

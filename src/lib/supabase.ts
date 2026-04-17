@@ -8,7 +8,17 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export type Property = {
   id: string;
   name: string;
+  nickname: string;
   address: string;
+  city: string;
+  state: string;
+  zip: string;
+  bedrooms: number;
+  bathrooms: number;
+  max_guests: number;
+  property_type: string;
+  primary_photo_url: string;
+  archived: boolean;
   platforms: string[];
   price_per_night: number;
   cleaning_fee: number;
@@ -25,6 +35,14 @@ export type Property = {
   notes: string;
   created_at: string;
   user_id: string;
+};
+
+export type PropertyDetails = {
+  id: string;
+  property_id: string;
+  section: string;
+  data: Record<string, unknown>;
+  updated_at: string;
 };
 
 export type PropertyRules = {

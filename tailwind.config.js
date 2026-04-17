@@ -3,7 +3,7 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        brand: { DEFAULT: "#FF385C", dark: "#E31C5F", light: "#FF5A7D", bg: "#FFF0ED" },
+        brand: { DEFAULT: "#ba0036", dark: "#8f0029", light: "#d63256", bg: "#fdecef" },
         surface: { DEFAULT: "#FFFFFF", soft: "#F7F7F7", muted: "#EBEBEB" },
         txt: { DEFAULT: "#222222", secondary: "#717171", tertiary: "#B0B0B0" },
         status: {
@@ -14,7 +14,7 @@ module.exports = {
         },
       },
       fontFamily: {
-        sans: ['"Cereal"', '"Circular"', '"Helvetica Neue"', "system-ui", "sans-serif"],
+        sans: ['"Manrope"', '"Inter"', '"Helvetica Neue"', "system-ui", "sans-serif"],
       },
       borderRadius: { xl: "12px", "2xl": "16px" },
     },

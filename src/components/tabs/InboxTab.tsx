@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useEmails } from "@/lib/hooks";
-import type { Email } from "@/lib/supabase";
+import { useEmails, useProperties, assignEmailToProperty } from "@/lib/hooks";
+import type { Email, Property } from "@/lib/supabase";
 import { Icon } from "@/components/Icon";
 
 type CategoryKey =
@@ -34,7 +34,8 @@ const CATEGORIES: { key: CategoryKey; label: string }[] = [
 
 export function InboxTab() {
   const [sortAsc, setSortAsc] = useState(false);
-  const { data: emails, loading } = useEmails({ orderAsc: sortAsc });
+  const { data: emails, loading, refetch } = useEmails({ orderAsc: sortAsc });
+  const { data: properties } = useProperties();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [category, setCategory] = useState<CategoryKey>("all");
   const [query, setQuery] = useState("");
@@ -166,6 +167,8 @@ export function InboxTab() {
           {selected && (
             <EmailReader
               email={selected}
+              properties={properties}
+              onAssigned={refetch}
               onClose={() => setSelectedId(null)}
             />
           )}
@@ -242,11 +245,25 @@ function InboxRow({
 
 function EmailReader({
   email,
+  properties,
+  onAssigned,
   onClose,
 }: {
   email: Email;
+  properties: Property[];
+  onAssigned: () => void;
   onClose: () => void;
 }) {
+  const assigned = email.property_id
+    ? properties.find((p) => p.id === email.property_id)
+    : null;
+
+  const handleAssign = async (value: string) => {
+    const next = value || null;
+    await assignEmailToProperty(email.id, next);
+    onAssigned();
+  };
+
   return (
     <div className="flex-1 bg-white/80 backdrop-blur-xl border border-surface-muted rounded-xl overflow-hidden sticky top-4">
       <div className="flex items-start justify-between px-5 pt-5 pb-3 border-b border-surface-muted">
@@ -263,11 +280,19 @@ function EmailReader({
           <div className="text-xs text-txt-secondary mt-0.5">
             to {email.to_addr} · {new Date(email.received_at).toLocaleString()}
           </div>
-          {email.primary_tag && (
-            <span className="inline-block mt-2 text-[10px] font-semibold text-brand bg-brand/10 px-2 py-0.5 rounded">
-              {email.primary_tag}
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            {email.primary_tag && (
+              <span className="text-[10px] font-semibold text-brand bg-brand/10 px-2 py-0.5 rounded">
+                {email.primary_tag}
+              </span>
+            )}
+            {assigned && (
+              <span className="text-[10px] font-semibold text-status-green bg-status-green-bg px-2 py-0.5 rounded flex items-center gap-1">
+                <Icon name="home_work" className="text-xs" />
+                {assigned.nickname || assigned.name}
+              </span>
+            )}
+          </div>
         </div>
         <button
           onClick={onClose}
@@ -277,6 +302,26 @@ function EmailReader({
           <Icon name="close" className="text-lg" />
         </button>
       </div>
+
+      <div className="flex items-center gap-2 px-5 py-2 border-b border-surface-muted bg-surface-soft/40">
+        <Icon name="label" className="text-txt-secondary text-sm" />
+        <span className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wide">
+          Assign to property
+        </span>
+        <select
+          value={email.property_id || ""}
+          onChange={(e) => handleAssign(e.target.value)}
+          className="flex-1 px-2 py-1 bg-white border border-surface-muted rounded text-xs outline-none focus:border-brand"
+        >
+          <option value="">— Unassigned —</option>
+          {properties.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.nickname || p.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="p-5 text-sm leading-relaxed whitespace-pre-wrap text-txt">
         {email.body_text || "(empty body)"}
       </div>
