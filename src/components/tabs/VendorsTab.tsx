@@ -29,7 +29,7 @@ export function VendorsTab() {
       {filtered.map((v) => (
         <Card key={v.id} className="mb-2 cursor-pointer">
           {editId === v.id ? (
-            <VendorEditForm vendor={v} properties={properties} onSave={(u) => save(v.id, u)} onDelete={() => remove(v.id)} onCancel={() => setEditId(null)} />
+            <VendorEditForm vendor={v} properties={properties} onSave={(u: Record<string, unknown>) => save(v.id, u)} onDelete={() => remove(v.id)} onCancel={() => setEditId(null)} />
           ) : (
             <div onClick={() => setEditId(v.id)}>
               <div className="flex justify-between items-center"><div className="flex items-center gap-2"><span className="font-bold text-sm">{v.name}</span><Badge color="blue">{v.role}</Badge></div><span className="text-xs text-txt-secondary">{v.rate}</span></div>
