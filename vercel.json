@@ -1,12 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/email-webhook",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/message-sequencer",
-      "schedule": "0 9 * * *"
-    }
-  ]
-}
+{}
