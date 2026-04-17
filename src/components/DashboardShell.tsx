@@ -105,20 +105,6 @@ export function DashboardShell() {
           >
             + Add Property
           </button>
-
-          <div className="px-3 pt-4 pb-1 text-[11px] font-bold text-txt-secondary uppercase tracking-wide">
-            Tools
-          </div>
-          <button
-            onClick={() => setActiveTab("inbox")}
-            className={clsx("sidebar-item", activeTab === "inbox" && "active")}
-          >
-            <div className="flex items-center gap-2">
-              <Icon name="inbox" className="text-base text-txt-secondary" />
-              <span className="text-sm">Inbox</span>
-            </div>
-            <span className="text-[10px] text-txt-secondary ml-6">All emails</span>
-          </button>
         </aside>
 
         <main className="flex-1 overflow-y-auto p-5">
