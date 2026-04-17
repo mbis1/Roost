@@ -177,7 +177,7 @@ export async function fetchRecentEmails(maxResults: number = 20): Promise<Fetche
         const fromAddr = parsed.from?.value?.[0]?.address || parsed.from?.text || msg.envelope?.from?.[0]?.address || "";
         const subject = parsed.subject || msg.envelope?.subject || "";
         const body = parsed.text || (parsed.html ? stripHtml(String(parsed.html)) : "") || "";
-        const receivedAt = (parsed.date || msg.internalDate || new Date()).toISOString();
+        const receivedAt = new Date(parsed.date || msg.internalDate || new Date()).toISOString();
         emails.push({ id: String(uid), from: fromAddr, subject, body, receivedAt });
       }
     } finally { lock.release(); }
