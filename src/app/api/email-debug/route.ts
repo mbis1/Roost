@@ -45,6 +45,8 @@ export async function GET() {
 
   let totalInboxCount = 0;
   let totalMatched = 0;
+  const debugErrors: string[] = [];
+  let matchedUidsRaw: number[] = [];
 
   try {
     await client.connect();
@@ -58,56 +60,66 @@ export async function GET() {
       const matchedUids =
         (await client.search({ since, to: TARGET_ADDRESS })) || [];
       totalMatched = matchedUids.length;
+      matchedUidsRaw = matchedUids as number[];
 
       const recent = matchedUids
         .sort((a: number, b: number) => b - a)
         .slice(0, 50);
 
-      for (const uid of recent) {
-        const msg = await client.fetchOne(
-          String(uid),
+      // Try streaming fetch first (more reliable than fetchOne per UID).
+      try {
+        for await (const msg of client.fetch(
+          recent.map(String).join(","),
           { source: true, envelope: true, internalDate: true },
           { uid: true }
-        );
-        if (!msg || !msg.source) continue;
+        )) {
+          const uid = (msg.uid as number) ?? 0;
+          if (!msg || !msg.source) {
+            debugErrors.push(`uid ${uid}: no source returned`);
+            continue;
+          }
 
-        let parsed;
-        try {
-          parsed = await simpleParser(msg.source);
-        } catch {
-          continue;
+          let parsed;
+          try {
+            parsed = await simpleParser(msg.source);
+          } catch (parseErr) {
+            debugErrors.push(`uid ${uid}: simpleParser threw — ${String(parseErr)}`);
+            continue;
+          }
+
+          const fromAddr =
+            parsed.from?.value?.[0]?.address || parsed.from?.text || "";
+          const toText =
+            parsed.to && !Array.isArray(parsed.to)
+              ? parsed.to.text
+              : Array.isArray(parsed.to)
+              ? parsed.to.map((t) => t.text).join(", ")
+              : "";
+          const deliveredTo =
+            (parsed.headers.get("delivered-to") as string) || null;
+          const subject = parsed.subject || "";
+          const date = new Date(
+            parsed.date || msg.internalDate || new Date()
+          ).toISOString();
+
+          results.push({
+            uid,
+            date,
+            from: fromAddr,
+            to: toText,
+            deliveredTo,
+            subject,
+          });
         }
-
-        const fromAddr =
-          parsed.from?.value?.[0]?.address || parsed.from?.text || "";
-        const toText =
-          parsed.to && !Array.isArray(parsed.to)
-            ? parsed.to.text
-            : Array.isArray(parsed.to)
-            ? parsed.to.map((t) => t.text).join(", ")
-            : "";
-        const deliveredTo =
-          (parsed.headers.get("delivered-to") as string) || null;
-        const subject = parsed.subject || "";
-        const date = new Date(
-          parsed.date || msg.internalDate || new Date()
-        ).toISOString();
-
-        results.push({
-          uid: uid as number,
-          date,
-          from: fromAddr,
-          to: toText,
-          deliveredTo,
-          subject,
-        });
+      } catch (fetchErr) {
+        debugErrors.push(`stream fetch failed: ${String(fetchErr)}`);
       }
     } finally {
       lock.release();
     }
   } catch (err) {
     return NextResponse.json(
-      { error: "IMAP error", details: String(err) },
+      { error: "IMAP error", details: String(err), debug_errors: debugErrors },
       { status: 500 }
     );
   } finally {
@@ -124,7 +136,9 @@ export async function GET() {
     window: "last 30 days",
     total_inbox_count: totalInboxCount,
     total_matched: totalMatched,
+    matched_uids: matchedUidsRaw,
     sample_size: results.length,
+    debug_errors: debugErrors,
     messages: results,
   });
 }
