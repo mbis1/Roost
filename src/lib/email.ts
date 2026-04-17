@@ -113,7 +113,7 @@ export async function processNewEmails(): Promise<{
         ).toISOString();
 
         try {
-          const id = await storeEmailAsMessage({
+          const { id, reason } = await storeEmailAsMessage({
             uid,
             fromAddr,
             guestName,
@@ -124,6 +124,8 @@ export async function processNewEmails(): Promise<{
           if (id) {
             stored++;
             storedIds.push(id);
+          } else if (reason) {
+            errors.push(`uid=${uid} not stored: ${reason}`);
           }
         } catch (e) {
           errors.push(`store uid=${uid}: ${String(e)}`);
@@ -152,7 +154,7 @@ async function storeEmailAsMessage(email: {
   toText: string;
   subject: string;
   receivedAt: string;
-}): Promise<string | null> {
+}): Promise<{ id: string | null; reason?: string }> {
   // Idempotency: skip if we've already ingested this UID.
   const preview = `email:${email.uid}`;
   const { data: existing } = await supabase
@@ -160,7 +162,9 @@ async function storeEmailAsMessage(email: {
     .select("id")
     .eq("last_message_preview", preview)
     .limit(1);
-  if (existing && existing.length > 0) return null;
+  if (existing && existing.length > 0) {
+    return { id: null, reason: "duplicate" };
+  }
 
   const { data: inserted, error: msgErr } = await supabase
     .from("messages")
@@ -178,16 +182,26 @@ async function storeEmailAsMessage(email: {
     .single();
 
   if (msgErr || !inserted) {
-    console.error("insert messages failed:", msgErr);
-    return null;
+    const code = (msgErr && (msgErr.code || "")) || "";
+    const message = (msgErr && msgErr.message) || "unknown insert failure";
+    return { id: null, reason: `insert messages failed: [${code}] ${message}` };
   }
 
   const bodyText = `From: ${email.fromAddr}\nTo: ${email.toText}\nDate: ${email.receivedAt}\nSubject: ${email.subject}`;
-  await supabase.from("message_threads").insert({
-    message_id: inserted.id,
-    sender: "guest",
-    text: bodyText,
-  });
+  const { error: threadErr } = await supabase
+    .from("message_threads")
+    .insert({
+      message_id: inserted.id,
+      sender: "guest",
+      text: bodyText,
+    });
 
-  return inserted.id;
+  if (threadErr) {
+    return {
+      id: inserted.id,
+      reason: `message stored but thread insert failed: ${threadErr.message}`,
+    };
+  }
+
+  return { id: inserted.id };
 }
