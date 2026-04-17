@@ -1,29 +1,38 @@
 // src/lib/email.ts
 //
-// IMAP email ingest → writes to the `emails` table.
+// IMAP email ingest for Roost.
 //
-// Two-pass design:
-//   Pass 1 — scan envelopes for the last SCAN_WINDOW inbox messages, filter
-//            to those addressed to TARGET_ADDRESS (case-insensitive) and
-//            within MAX_AGE_DAYS. Collect UID/seq/envelope for matches.
-//   Pass 2 — for each match, fetch the message source (body) by sequence
-//            number, parse with mailparser, insert into `emails`.
+// Pulls every email in INBOX addressed to TARGET_ADDRESS (anjeyka@yahoo.com)
+// — NO sender-domain filter — and stores each into the `emails` Supabase
+// table. Dedupes on IMAP UID so it's safe to run repeatedly (via cron or
+// manual trigger). Tagging is a separate feature; primary_tag is left null
+// here.
 //
-// Dedup is on `raw_uid`. Idempotent — safe to run repeatedly.
+// Two-pass design (reliable on Yahoo IMAP):
+//   Pass 1: iterate envelopes via sequence-range fetch, collect matches
+//   Pass 2: fetch raw source for each match by sequence number, parse body
+//           with mailparser, insert into `emails`
 //
 // Env vars:
-//   IMAP_HOST     e.g. imap.mail.yahoo.com
-//   IMAP_PORT     default 993
-//   IMAP_USER     full email address
-//   IMAP_PASSWORD app password (Yahoo requires app passwords)
+//   IMAP_HOST      e.g. imap.mail.yahoo.com
+//   IMAP_PORT      default 993
+//   IMAP_USER      full email address
+//   IMAP_PASSWORD  app password (Yahoo requires app passwords)
 
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { supabase } from "@/lib/supabase";
 
-const TARGET_ADDRESS = "anjeyka@yahoo.com";
-const SCAN_WINDOW = 5000; // how many of the most recent inbox messages to scan
-const MAX_AGE_DAYS = 30;  // ignore messages older than this
+export const TARGET_ADDRESS = "anjeyka@yahoo.com";
+const DEFAULT_DAYS = 30;
+const SCAN_WINDOW = 5000; // max inbox messages to scan in one run
+
+export type IngestResult = {
+  processed: number;          // envelopes that matched the To filter
+  stored: number;             // newly inserted rows
+  skipped_duplicates: number; // already present (dedupe hit on raw_uid)
+  errors: string[];
+};
 
 type Match = {
   uid: number;
@@ -47,23 +56,26 @@ function getImapConfig(): ImapConfig | null {
   return { host, port, user, password };
 }
 
-export async function processNewEmails(): Promise<{
-  scanned: number;
-  matched: number;
-  stored: number;
-  storedIds: string[];
-  errors: string[];
-}> {
+/**
+ * Main ingest. Scans the inbox, filters to anjeyka, stores new emails.
+ *
+ * @param options.days  How many days back to include (default 30). Older
+ *                      matched envelopes are skipped.
+ */
+export async function processAnjeykaEmails(
+  options?: { days?: number }
+): Promise<IngestResult> {
+  const days = options?.days ?? DEFAULT_DAYS;
+
   const errors: string[] = [];
-  const storedIds: string[] = [];
-  let scanned = 0;
-  let matched = 0;
+  let processed = 0;
   let stored = 0;
+  let skippedDuplicates = 0;
 
   const cfg = getImapConfig();
   if (!cfg) {
     errors.push("IMAP not configured");
-    return { scanned, matched, stored, storedIds, errors };
+    return { processed, stored, skipped_duplicates: skippedDuplicates, errors };
   }
 
   const client = new ImapFlow({
@@ -86,7 +98,7 @@ export async function processNewEmails(): Promise<{
       const start = Math.max(1, totalMsgs - (SCAN_WINDOW - 1));
       const range = `${start}:*`;
       const targetLower = TARGET_ADDRESS.toLowerCase();
-      const cutoff = Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+      const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
 
       // Pass 1 — collect matches.
       const matches: Match[] = [];
@@ -94,7 +106,6 @@ export async function processNewEmails(): Promise<{
         envelope: true,
         internalDate: true,
       })) {
-        scanned++;
         const env = msg.envelope;
         if (!env) continue;
 
@@ -112,7 +123,8 @@ export async function processNewEmails(): Promise<{
           .filter(Boolean);
 
         if (!recipients.includes(targetLower)) continue;
-        matched++;
+
+        processed++;
 
         const fromFirst = env.from?.[0];
         const toText = (env.to || [])
@@ -134,16 +146,19 @@ export async function processNewEmails(): Promise<{
         });
       }
 
-      // Pass 2 — fetch bodies for matches (seq-based; Yahoo-safe).
+      // Pass 2 — dedup, fetch body, insert.
       for (const m of matches) {
-        // Dedup: skip if we've already stored this UID.
         const rawUid = String(m.uid);
+
         const { data: existing } = await supabase
           .from("emails")
           .select("id")
           .eq("raw_uid", rawUid)
           .limit(1);
-        if (existing && existing.length > 0) continue;
+        if (existing && existing.length > 0) {
+          skippedDuplicates++;
+          continue;
+        }
 
         let bodyText = "";
         let bodyHtml: string | null = null;
@@ -153,7 +168,9 @@ export async function processNewEmails(): Promise<{
           if (body && body.source) {
             try {
               const parsed = await simpleParser(body.source);
-              bodyText = parsed.text || "";
+              bodyText =
+                parsed.text ||
+                (parsed.html ? stripHtml(String(parsed.html)) : "");
               bodyHtml = parsed.html ? String(parsed.html) : null;
             } catch (parseErr) {
               errors.push(
@@ -195,7 +212,6 @@ export async function processNewEmails(): Promise<{
         }
 
         stored++;
-        storedIds.push(inserted.id);
       }
     } finally {
       lock.release();
@@ -210,5 +226,24 @@ export async function processNewEmails(): Promise<{
     }
   }
 
-  return { scanned, matched, stored, storedIds, errors };
+  return {
+    processed,
+    stored,
+    skipped_duplicates: skippedDuplicates,
+    errors,
+  };
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
 }

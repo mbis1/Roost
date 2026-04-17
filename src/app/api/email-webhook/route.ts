@@ -1,26 +1,22 @@
 // src/app/api/email-webhook/route.ts
 //
-// Cron endpoint hit by cron-job.org (and usable manually via ?run=1).
-// Pulls recent emails addressed to anjeyka@yahoo.com from the authenticated
-// Yahoo inbox and stores each as a message in Supabase. Simple ingest — no
-// AI draft / Telegram side-effects for now.
+// Cron endpoint hit by cron-job.org (and manually via GET ?run=1).
+// Runs the standard ingest: all emails addressed to anjeyka@yahoo.com from
+// the last 30 days, deduped by IMAP UID, stored into the `emails` Supabase
+// table.
 
 import { NextResponse } from "next/server";
-import { processNewEmails } from "@/lib/email";
+import { processAnjeykaEmails, TARGET_ADDRESS } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST() {
   try {
-    const result = await processNewEmails();
+    const result = await processAnjeykaEmails();
     return NextResponse.json({
       success: true,
-      scanned: result.scanned,
-      matched: result.matched,
-      stored: result.stored,
-      storedIds: result.storedIds,
-      errors: result.errors,
+      ...result,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -41,7 +37,7 @@ export async function GET(request: Request) {
       process.env.IMAP_USER &&
       process.env.IMAP_PASSWORD
     ),
-    imap_host: process.env.IMAP_HOST || null,
-    hint: "Append ?run=1 to trigger a fetch manually.",
+    target_address: TARGET_ADDRESS,
+    hint: "POST or GET with ?run=1 to trigger ingestion",
   });
 }
