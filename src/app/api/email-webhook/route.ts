@@ -1,45 +1,25 @@
 // src/app/api/email-webhook/route.ts
 //
-// Cron endpoint hit by cron-job.org every 15 minutes.
-// Pulls new Airbnb/VRBO/Booking emails over IMAP, stores them as guest
-// messages, then fires AI drafts to the host via Telegram for approval.
+// Cron endpoint hit by cron-job.org (and usable manually via ?run=1).
+// Pulls recent emails addressed to anjeyka@yahoo.com from the authenticated
+// Yahoo inbox and stores each as a message in Supabase. Simple ingest — no
+// AI draft / Telegram side-effects for now.
 
 import { NextResponse } from "next/server";
 import { processNewEmails } from "@/lib/email";
-import { getTelegramConfig, processAndNotify } from "@/lib/telegram";
-import { supabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export async function POST(request: Request) {
+export async function POST() {
   try {
     const result = await processNewEmails();
-    const telegramConfig = await getTelegramConfig();
-    let notified = 0;
-
-    if (result.stored > 0 && telegramConfig) {
-      let idsToNotify = result.storedIds;
-      if (!idsToNotify || idsToNotify.length === 0) {
-        const { data: unread } = await supabase
-          .from("messages")
-          .select("id")
-          .eq("unread", true)
-          .order("last_message_at", { ascending: false })
-          .limit(result.stored);
-        idsToNotify = (unread || []).map((m) => m.id);
-      }
-      for (const id of idsToNotify) {
-        const sent = await processAndNotify(id, telegramConfig);
-        if (sent) notified++;
-      }
-    }
-
     return NextResponse.json({
       success: true,
-      emails_checked: result.processed,
-      messages_stored: result.stored,
-      telegram_notifications: notified,
+      scanned: result.scanned,
+      matched: result.matched,
+      stored: result.stored,
+      storedIds: result.storedIds,
       errors: result.errors,
       timestamp: new Date().toISOString(),
     });
@@ -53,12 +33,15 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  if (url.searchParams.get("run") === "1") return POST(request);
+  if (url.searchParams.get("run") === "1") return POST();
   return NextResponse.json({
     status: "Email webhook ready",
-    imap_configured: !!(process.env.IMAP_HOST && process.env.IMAP_USER && process.env.IMAP_PASSWORD),
+    imap_configured: !!(
+      process.env.IMAP_HOST &&
+      process.env.IMAP_USER &&
+      process.env.IMAP_PASSWORD
+    ),
     imap_host: process.env.IMAP_HOST || null,
-    telegram_configured: !!process.env.TELEGRAM_BOT_TOKEN,
     hint: "Append ?run=1 to trigger a fetch manually.",
   });
 }
