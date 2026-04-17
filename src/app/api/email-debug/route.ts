@@ -57,101 +57,65 @@ export async function GET() {
       const allUids = (await client.search({ since })) || [];
       totalInboxCount = allUids.length;
 
-      const matchedUids =
-        (await client.search({ since, to: TARGET_ADDRESS })) || [];
-      totalMatched = matchedUids.length;
-      matchedUidsRaw = matchedUids as number[];
-
-      const recent = matchedUids
+      // Yahoo IMAP quirk: server-side `to:` search returns UIDs that can't be
+      // fetched back (cross-folder virtual index). Instead, pull envelopes for
+      // the most recent 500 inbox messages and filter client-side by the To
+      // header. Slower but reliable across providers.
+      const recentAll = allUids
         .sort((a: number, b: number) => b - a)
-        .slice(0, 50);
+        .slice(0, 500);
 
-      // Try both fetchOne (per-UID) and streaming fetch; log exhaustively.
-      let streamIterations = 0;
+      debugErrors.push(
+        `scanning ${recentAll.length} of ${allUids.length} inbox msgs (last 30d)`
+      );
+
+      let iterations = 0;
+      const targetLower = TARGET_ADDRESS.toLowerCase();
+
       try {
         for await (const msg of client.fetch(
-          recent,
-          { source: true, envelope: true, internalDate: true },
+          recentAll,
+          { envelope: true, internalDate: true },
           { uid: true }
         )) {
-          streamIterations++;
+          iterations++;
           const uid = (msg.uid as number) ?? 0;
-          const hasSource = !!msg.source;
-          const sourceLen = msg.source ? msg.source.length : 0;
-          debugErrors.push(
-            `stream uid=${uid} hasSource=${hasSource} len=${sourceLen} envSubject=${JSON.stringify(
-              msg.envelope?.subject
-            )}`
-          );
+          const env = msg.envelope;
+          if (!env) continue;
 
-          if (!msg.source) continue;
+          const toList = env.to || [];
+          const ccList = env.cc || [];
+          const bccList = env.bcc || [];
+          const allRecipients = [...toList, ...ccList, ...bccList]
+            .map((a) => (a?.address || "").toLowerCase())
+            .filter(Boolean);
 
-          let parsed;
-          try {
-            parsed = await simpleParser(msg.source);
-          } catch (parseErr) {
-            debugErrors.push(`uid ${uid}: simpleParser threw — ${String(parseErr)}`);
-            continue;
-          }
+          if (!allRecipients.some((a) => a === targetLower)) continue;
 
-          const fromAddr =
-            parsed.from?.value?.[0]?.address || parsed.from?.text || "";
-          const toText =
-            parsed.to && !Array.isArray(parsed.to)
-              ? parsed.to.text
-              : Array.isArray(parsed.to)
-              ? parsed.to.map((t) => t.text).join(", ")
-              : "";
-          const deliveredTo =
-            (parsed.headers.get("delivered-to") as string) || null;
-          const subject = parsed.subject || "";
-          const date = new Date(
-            parsed.date || msg.internalDate || new Date()
-          ).toISOString();
+          matchedUidsRaw.push(uid);
+          const fromFirst = env.from?.[0];
+          const toText = toList
+            .map((a) => (a?.name ? `${a.name} <${a.address}>` : a?.address || ""))
+            .filter(Boolean)
+            .join(", ");
 
           results.push({
             uid,
-            date,
-            from: fromAddr,
+            date: new Date(msg.internalDate || new Date()).toISOString(),
+            from: fromFirst?.address || "",
             to: toText,
-            deliveredTo,
-            subject,
+            deliveredTo: null,
+            subject: env.subject || "",
           });
         }
       } catch (fetchErr) {
-        debugErrors.push(`stream fetch threw: ${String(fetchErr)}`);
+        debugErrors.push(`envelope fetch threw: ${String(fetchErr)}`);
       }
-      debugErrors.push(`stream yielded ${streamIterations} iterations for ${recent.length} UIDs`);
 
-      // Fallback: try fetchOne on each UID individually (envelope-only, no source).
-      if (results.length === 0 && recent.length > 0) {
-        for (const uid of recent) {
-          try {
-            const msg = await client.fetchOne(
-              String(uid),
-              { envelope: true, internalDate: true },
-              { uid: true }
-            );
-            if (!msg) {
-              debugErrors.push(`fetchOne uid=${uid} returned null/undefined`);
-              continue;
-            }
-            const env = msg.envelope;
-            const fromFirst = env?.from?.[0];
-            const toFirst = env?.to?.[0];
-            results.push({
-              uid: uid as number,
-              date: new Date(msg.internalDate || new Date()).toISOString(),
-              from: fromFirst?.address || "",
-              to: toFirst?.address || "",
-              deliveredTo: null,
-              subject: env?.subject || "",
-            });
-          } catch (e) {
-            debugErrors.push(`fetchOne uid=${uid} threw: ${String(e)}`);
-          }
-        }
-      }
+      totalMatched = matchedUidsRaw.length;
+      debugErrors.push(
+        `scanned ${iterations} envelopes, matched ${totalMatched}`
+      );
     } finally {
       lock.release();
     }
