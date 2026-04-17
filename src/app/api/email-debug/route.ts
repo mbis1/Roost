@@ -58,26 +58,27 @@ export async function GET() {
       totalInboxCount = allUids.length;
 
       // Yahoo IMAP quirk: server-side `to:` search returns UIDs that can't be
-      // fetched back (cross-folder virtual index). Instead, pull envelopes for
-      // the most recent 500 inbox messages and filter client-side by the To
-      // header. Slower but reliable across providers.
-      const recentAll = allUids
-        .sort((a: number, b: number) => b - a)
-        .slice(0, 500);
+      // fetched back, AND fetch-by-UID-array yields 0 iterations. Switch to
+      // sequence-number range (the canonical IMAP fetch mode) covering the
+      // last 500 inbox messages, then filter client-side by To header.
+      const totalMsgs = client.mailbox && typeof client.mailbox !== "boolean"
+        ? (client.mailbox.exists || 0)
+        : 0;
+      const start = Math.max(1, totalMsgs - 499);
+      const range = `${start}:*`;
 
       debugErrors.push(
-        `scanning ${recentAll.length} of ${allUids.length} inbox msgs (last 30d)`
+        `inbox total=${totalMsgs}, fetching seq range ${range} (30d search found ${allUids.length} UIDs)`
       );
 
       let iterations = 0;
       const targetLower = TARGET_ADDRESS.toLowerCase();
 
       try {
-        for await (const msg of client.fetch(
-          recentAll,
-          { envelope: true, internalDate: true },
-          { uid: true }
-        )) {
+        for await (const msg of client.fetch(range, {
+          envelope: true,
+          internalDate: true,
+        })) {
           iterations++;
           const uid = (msg.uid as number) ?? 0;
           const env = msg.envelope;
