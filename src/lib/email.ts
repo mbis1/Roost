@@ -16,7 +16,8 @@ import { ImapFlow } from "imapflow";
 import { supabase } from "@/lib/supabase";
 
 const TARGET_ADDRESS = "anjeyka@yahoo.com";
-const SCAN_WINDOW = 1000; // how many of the most recent inbox messages to scan
+const SCAN_WINDOW = 5000; // how many of the most recent inbox messages to scan
+const MAX_AGE_DAYS = 30; // ignore messages older than this (client-side cut-off)
 
 export type IngestedEmail = {
   uid: number;
@@ -77,6 +78,8 @@ export async function processNewEmails(): Promise<{
       const range = `${start}:*`;
       const targetLower = TARGET_ADDRESS.toLowerCase();
 
+      const cutoff = Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+
       for await (const msg of client.fetch(range, {
         envelope: true,
         internalDate: true,
@@ -84,6 +87,12 @@ export async function processNewEmails(): Promise<{
         scanned++;
         const env = msg.envelope;
         if (!env) continue;
+
+        // Skip messages older than MAX_AGE_DAYS.
+        const internal = msg.internalDate
+          ? new Date(msg.internalDate).getTime()
+          : 0;
+        if (internal && internal < cutoff) continue;
 
         const recipients = [
           ...(env.to || []),
