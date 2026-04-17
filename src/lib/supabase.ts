@@ -1,9 +1,14 @@
-import { createClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+/**
+ * Cookie-based browser client. Works in both browser and Next.js client
+ * components. Sessions persist across reloads and are accessible from
+ * middleware / server components via the cookie jar.
+ */
+export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
 
 export type Property = {
   id: string;

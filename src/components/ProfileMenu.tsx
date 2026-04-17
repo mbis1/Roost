@@ -1,32 +1,27 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
-import { useUserSettings } from "@/lib/hooks";
+import { useAuth, displayName } from "@/lib/useAuth";
 
 /**
- * Top-right profile button + dropdown menu.
- *
- * Today this is a stub — no real auth yet. It pulls the display name from
- * the user_settings row (first part of email, or "You") so there's always
- * something to show, and exposes the Settings action. When real Supabase
- * auth is wired in, swap the name source for the authenticated user object
- * and enable the Log out item.
+ * Top-right profile button + dropdown menu. Pulls the current user from
+ * Supabase auth, shows their display name + email, and provides Log out.
  */
 export function ProfileMenu({
   onOpenSettings,
 }: {
   onOpenSettings: () => void;
 }) {
-  const { settings } = useUserSettings();
+  const router = useRouter();
+  const { user, signOut } = useAuth();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  const email = settings?.email || "";
-  const displayName = email
-    ? email.split("@")[0].replace(/[._]/g, " ")
-    : "You";
-  const initial = displayName.charAt(0).toUpperCase() || "?";
+  const name = displayName(user);
+  const initial = name.charAt(0).toUpperCase() || "?";
+  const email = user?.email || "";
 
   // Close on outside click.
   useEffect(() => {
@@ -40,18 +35,25 @@ export function ProfileMenu({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  const handleLogout = async () => {
+    setOpen(false);
+    await signOut();
+    router.push("/login");
+    router.refresh();
+  };
+
   return (
     <div className="relative" ref={rootRef}>
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full border border-transparent hover:border-surface-muted transition-colors cursor-pointer"
-        title={displayName}
+        title={name}
       >
         <div className="w-7 h-7 rounded-full bg-gradient-to-br from-brand to-brand-dark text-white text-xs font-bold flex items-center justify-center">
           {initial}
         </div>
         <span className="text-xs font-semibold text-txt capitalize hidden sm:inline">
-          {displayName}
+          {name}
         </span>
         <Icon name="expand_more" className="text-sm text-txt-tertiary" />
       </button>
@@ -62,8 +64,8 @@ export function ProfileMenu({
             <div className="text-xs text-txt-tertiary uppercase tracking-wide font-bold">
               Signed in
             </div>
-            <div className="text-sm font-semibold capitalize mt-0.5">
-              {displayName}
+            <div className="text-sm font-semibold capitalize mt-0.5 truncate">
+              {name}
             </div>
             {email && (
               <div className="text-xs text-txt-secondary truncate">
@@ -83,12 +85,7 @@ export function ProfileMenu({
 
           <div className="border-t border-surface-muted" />
 
-          <MenuItem
-            icon="logout"
-            label="Log out"
-            disabled
-            hint="Available once auth is wired up"
-          />
+          <MenuItem icon="logout" label="Log out" onClick={handleLogout} />
         </div>
       )}
     </div>
@@ -99,26 +96,15 @@ function MenuItem({
   icon,
   label,
   onClick,
-  disabled,
-  hint,
 }: {
   icon: string;
   label: string;
   onClick?: () => void;
-  disabled?: boolean;
-  hint?: string;
 }) {
   return (
     <button
       onClick={onClick}
-      disabled={disabled}
-      title={hint}
-      className={
-        "w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors " +
-        (disabled
-          ? "text-txt-tertiary cursor-not-allowed"
-          : "text-txt hover:bg-surface-soft cursor-pointer")
-      }
+      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors text-txt hover:bg-surface-soft cursor-pointer"
     >
       <Icon name={icon} className="text-base" />
       <span className="flex-1">{label}</span>
