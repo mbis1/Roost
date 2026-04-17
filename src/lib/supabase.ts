@@ -121,6 +121,24 @@ export type Task = {
   user_id: string;
 };
 
+export type Email = {
+  id: string;
+  from_addr: string;
+  from_name: string;
+  to_addr: string;
+  subject: string;
+  body_text: string;
+  body_html: string | null;
+  received_at: string;
+  read: boolean;
+  primary_tag: string | null;
+  secondary_tags: string[];
+  property_id: string | null;
+  thread_id: string | null;
+  raw_uid: string | null;
+  created_at: string;
+};
+
 export type UserSettings = {
   id: string;
   user_id: string;

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Property, PropertyRules, ListingSettings, CalendarFeed, Message, MessageThread, Vendor, Task, UserSettings } from "@/lib/supabase";
+import type { Property, PropertyRules, ListingSettings, CalendarFeed, Message, MessageThread, Vendor, Task, UserSettings, Email } from "@/lib/supabase";
 
 function useSupabaseQuery<T>(table: string, filter?: { column: string; value: string }) {
   const [data, setData] = useState<T[]>([]);
@@ -53,6 +53,27 @@ export function useVendors() {
 export function useTasks(propertyId?: string) {
   const filter = propertyId ? { column: "property_id", value: propertyId } : undefined;
   return useSupabaseQuery<Task>("tasks", filter);
+}
+
+export function useEmails(options?: { primaryTag?: string; orderAsc?: boolean }) {
+  const [data, setData] = useState<Email[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refetch = useCallback(async () => {
+    setLoading(true);
+    let q = supabase.from("emails").select("*");
+    if (options?.primaryTag) q = q.eq("primary_tag", options.primaryTag);
+    q = q.order("received_at", { ascending: options?.orderAsc ?? false });
+    const { data: result, error } = await q;
+    if (!error && result) setData(result as Email[]);
+    setLoading(false);
+  }, [options?.primaryTag, options?.orderAsc]);
+
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  return { data, loading, refetch, setData };
 }
 
 export function useUserSettings() {

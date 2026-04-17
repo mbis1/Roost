@@ -26,8 +26,9 @@ const DASHBOARD_TABS = [
   { id: "reminders", label: "Reminders" },
   { id: "master", label: "Master" },
   { id: "settings", label: "Settings" },
-  { id: "inbox", label: "Inbox" },
 ];
+
+const INBOX_SENTINEL = "__inbox__";
 
 const PROPERTY_TABS = [
   { id: "info", label: "Info & Access" },
@@ -46,13 +47,19 @@ export function DashboardShell() {
   const [sidebarSelection, setSidebarSelection] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("today");
 
-  const isPropertyView = sidebarSelection !== null;
+  const isInboxView = sidebarSelection === INBOX_SENTINEL;
+  const isPropertyView =
+    sidebarSelection !== null && sidebarSelection !== INBOX_SENTINEL;
   const tabs = isPropertyView ? PROPERTY_TABS : DASHBOARD_TABS;
-  const selectedProperty = properties.find((p) => p.id === sidebarSelection);
+  const selectedProperty = isPropertyView
+    ? properties.find((p) => p.id === sidebarSelection)
+    : undefined;
 
   const selectSidebar = (id: string | null) => {
     setSidebarSelection(id);
-    setActiveTab(id === null ? "today" : "info");
+    if (id === null) setActiveTab("today");
+    else if (id === INBOX_SENTINEL) setActiveTab("inbox");
+    else setActiveTab("info");
   };
 
   return (
@@ -63,11 +70,12 @@ export function DashboardShell() {
           <span className="font-extrabold text-base">ROOST</span>
         </div>
         <div className="flex gap-1 overflow-x-auto flex-1 justify-center ml-4">
-          {tabs.map((tab) => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={clsx("top-pill", activeTab === tab.id && "active")}>
-              {tab.label}
-            </button>
-          ))}
+          {!isInboxView &&
+            tabs.map((tab) => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={clsx("top-pill", activeTab === tab.id && "active")}>
+                {tab.label}
+              </button>
+            ))}
         </div>
       </header>
 
@@ -93,6 +101,31 @@ export function DashboardShell() {
           <button className="mx-1 my-2 p-2 w-[calc(100%-8px)] border border-dashed border-surface-muted rounded-lg text-txt-secondary text-xs cursor-pointer hover:border-txt-secondary transition-colors">
             + Add Property
           </button>
+
+          <div className="px-3 pt-4 pb-1 text-[11px] font-bold text-txt-secondary uppercase tracking-wide">
+            Tools
+          </div>
+          <button
+            onClick={() => selectSidebar(INBOX_SENTINEL)}
+            className={clsx("sidebar-item", isInboxView && "active")}
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className="material-symbols-outlined text-[18px]"
+                style={
+                  isInboxView
+                    ? { fontVariationSettings: "'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24" }
+                    : undefined
+                }
+              >
+                inbox
+              </span>
+              <span className={clsx("text-sm", isInboxView ? "font-bold text-brand" : "text-txt")}>
+                Inbox
+              </span>
+            </div>
+            <span className="text-[10px] text-txt-secondary ml-6">All emails</span>
+          </button>
         </aside>
 
         <main className="flex-1 overflow-y-auto p-5">
@@ -106,8 +139,8 @@ export function DashboardShell() {
           {!isPropertyView && activeTab === "vendors" && <VendorsTab />}
           {!isPropertyView && activeTab === "reminders" && <TasksTab />}
           {!isPropertyView && activeTab === "master" && <Placeholder title="Master Listing Settings" msg="Sync settings across all platforms." />}
-          {!isPropertyView && activeTab === "settings" && <SettingsTab />}
-          {!isPropertyView && activeTab === "inbox" && <InboxTab />}
+          {!isPropertyView && !isInboxView && activeTab === "settings" && <SettingsTab />}
+          {isInboxView && <InboxTab />}
           {isPropertyView && selectedProperty && activeTab === "info" && <PropertyInfoTab property={selectedProperty} onUpdate={refetch} />}
           {isPropertyView && selectedProperty && activeTab === "rules" && <PropertyRulesTab property={selectedProperty} />}
           {isPropertyView && selectedProperty && activeTab === "calendar" && <CalendarTab property={selectedProperty} />}
