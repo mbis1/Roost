@@ -12,6 +12,7 @@ import { SettingsTab } from "@/components/tabs/SettingsTab";
 import { PropertyInfoTab } from "@/components/tabs/PropertyInfoTab";
 import { PropertyRulesTab } from "@/components/tabs/PropertyRulesTab";
 import { CalendarTab } from "@/components/tabs/CalendarTab";
+import { InboxTab } from "@/components/tabs/InboxTab";
 import { StatusBadge } from "@/components/ui";
 
 const DASHBOARD_TABS = [
@@ -25,6 +26,7 @@ const DASHBOARD_TABS = [
   { id: "reminders", label: "Reminders" },
   { id: "master", label: "Master" },
   { id: "settings", label: "Settings" },
+  { id: "inbox", label: "Inbox" },
 ];
 
 const PROPERTY_TABS = [
@@ -105,6 +107,7 @@ export function DashboardShell() {
           {!isPropertyView && activeTab === "reminders" && <TasksTab />}
           {!isPropertyView && activeTab === "master" && <Placeholder title="Master Listing Settings" msg="Sync settings across all platforms." />}
           {!isPropertyView && activeTab === "settings" && <SettingsTab />}
+          {!isPropertyView && activeTab === "inbox" && <InboxTab />}
           {isPropertyView && selectedProperty && activeTab === "info" && <PropertyInfoTab property={selectedProperty} onUpdate={refetch} />}
           {isPropertyView && selectedProperty && activeTab === "rules" && <PropertyRulesTab property={selectedProperty} />}
           {isPropertyView && selectedProperty && activeTab === "calendar" && <CalendarTab property={selectedProperty} />}
