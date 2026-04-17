@@ -1,30 +1,39 @@
 // src/lib/email.ts
 //
-// IMAP email ingest — simple version.
-// Fetches all emails addressed to TARGET_ADDRESS (anjeyka@yahoo.com) in the
-// recent inbox and stores each one as a message in Supabase. No platform
-// detection, no property matching — just log everything. Filtering and
-// tagging are later features.
+// IMAP email ingest → writes to the `emails` table.
+//
+// Two-pass design:
+//   Pass 1 — scan envelopes for the last SCAN_WINDOW inbox messages, filter
+//            to those addressed to TARGET_ADDRESS (case-insensitive) and
+//            within MAX_AGE_DAYS. Collect UID/seq/envelope for matches.
+//   Pass 2 — for each match, fetch the message source (body) by sequence
+//            number, parse with mailparser, insert into `emails`.
+//
+// Dedup is on `raw_uid`. Idempotent — safe to run repeatedly.
 //
 // Env vars:
 //   IMAP_HOST     e.g. imap.mail.yahoo.com
 //   IMAP_PORT     default 993
-//   IMAP_USER     full email address (the logged-in account)
+//   IMAP_USER     full email address
 //   IMAP_PASSWORD app password (Yahoo requires app passwords)
 
 import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
 import { supabase } from "@/lib/supabase";
 
 const TARGET_ADDRESS = "anjeyka@yahoo.com";
 const SCAN_WINDOW = 5000; // how many of the most recent inbox messages to scan
-const MAX_AGE_DAYS = 30; // ignore messages older than this (client-side cut-off)
+const MAX_AGE_DAYS = 30;  // ignore messages older than this
 
-export type IngestedEmail = {
+type Match = {
   uid: number;
-  from: string;
-  to: string;
+  seq: number;
+  fromAddr: string;
+  fromName: string;
+  toAddr: string;
   subject: string;
-  date: string;
+  receivedAt: string;
+  messageId: string | null;
 };
 
 type ImapConfig = { host: string; port: number; user: string; password: string };
@@ -77,9 +86,10 @@ export async function processNewEmails(): Promise<{
       const start = Math.max(1, totalMsgs - (SCAN_WINDOW - 1));
       const range = `${start}:*`;
       const targetLower = TARGET_ADDRESS.toLowerCase();
-
       const cutoff = Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
 
+      // Pass 1 — collect matches.
+      const matches: Match[] = [];
       for await (const msg of client.fetch(range, {
         envelope: true,
         internalDate: true,
@@ -88,7 +98,6 @@ export async function processNewEmails(): Promise<{
         const env = msg.envelope;
         if (!env) continue;
 
-        // Skip messages older than MAX_AGE_DAYS.
         const internal = msg.internalDate
           ? new Date(msg.internalDate).getTime()
           : 0;
@@ -105,40 +114,88 @@ export async function processNewEmails(): Promise<{
         if (!recipients.includes(targetLower)) continue;
         matched++;
 
-        const uid = (msg.uid as number) ?? 0;
         const fromFirst = env.from?.[0];
-        const fromAddr = fromFirst?.address || "";
-        const fromName = fromFirst?.name || "";
-        const guestName = fromName || fromAddr.split("@")[0] || "Unknown";
         const toText = (env.to || [])
           .map((a) =>
             a?.name ? `${a.name} <${a.address}>` : a?.address || ""
           )
           .filter(Boolean)
           .join(", ");
-        const subject = env.subject || "(no subject)";
-        const receivedAt = new Date(
-          msg.internalDate || new Date()
-        ).toISOString();
+
+        matches.push({
+          uid: (msg.uid as number) ?? 0,
+          seq: (msg.seq as number) ?? 0,
+          fromAddr: fromFirst?.address || "",
+          fromName: fromFirst?.name || "",
+          toAddr: toText,
+          subject: env.subject || "",
+          receivedAt: new Date(msg.internalDate || new Date()).toISOString(),
+          messageId: env.messageId || null,
+        });
+      }
+
+      // Pass 2 — fetch bodies for matches (seq-based; Yahoo-safe).
+      for (const m of matches) {
+        // Dedup: skip if we've already stored this UID.
+        const rawUid = String(m.uid);
+        const { data: existing } = await supabase
+          .from("emails")
+          .select("id")
+          .eq("raw_uid", rawUid)
+          .limit(1);
+        if (existing && existing.length > 0) continue;
+
+        let bodyText = "";
+        let bodyHtml: string | null = null;
 
         try {
-          const { id, reason } = await storeEmailAsMessage({
-            uid,
-            fromAddr,
-            guestName,
-            toText,
-            subject,
-            receivedAt,
-          });
-          if (id) {
-            stored++;
-            storedIds.push(id);
-          } else if (reason) {
-            errors.push(`uid=${uid} not stored: ${reason}`);
+          const body = await client.fetchOne(String(m.seq), { source: true });
+          if (body && body.source) {
+            try {
+              const parsed = await simpleParser(body.source);
+              bodyText = parsed.text || "";
+              bodyHtml = parsed.html ? String(parsed.html) : null;
+            } catch (parseErr) {
+              errors.push(
+                `mailparser uid=${m.uid} seq=${m.seq}: ${String(parseErr)}`
+              );
+            }
           }
-        } catch (e) {
-          errors.push(`store uid=${uid}: ${String(e)}`);
+        } catch (fetchErr) {
+          errors.push(
+            `body fetch uid=${m.uid} seq=${m.seq}: ${String(fetchErr)}`
+          );
         }
+
+        const { data: inserted, error: insertErr } = await supabase
+          .from("emails")
+          .insert({
+            from_addr: m.fromAddr,
+            from_name: m.fromName,
+            to_addr: m.toAddr,
+            subject: m.subject,
+            body_text: bodyText,
+            body_html: bodyHtml,
+            received_at: m.receivedAt,
+            read: false,
+            primary_tag: null,
+            secondary_tags: [],
+            property_id: null,
+            thread_id: m.messageId,
+            raw_uid: rawUid,
+          })
+          .select()
+          .single();
+
+        if (insertErr || !inserted) {
+          const code = insertErr?.code || "";
+          const message = insertErr?.message || "unknown insert failure";
+          errors.push(`insert uid=${m.uid}: [${code}] ${message}`);
+          continue;
+        }
+
+        stored++;
+        storedIds.push(inserted.id);
       }
     } finally {
       lock.release();
@@ -154,63 +211,4 @@ export async function processNewEmails(): Promise<{
   }
 
   return { scanned, matched, stored, storedIds, errors };
-}
-
-async function storeEmailAsMessage(email: {
-  uid: number;
-  fromAddr: string;
-  guestName: string;
-  toText: string;
-  subject: string;
-  receivedAt: string;
-}): Promise<{ id: string | null; reason?: string }> {
-  // Idempotency: skip if we've already ingested this UID.
-  const preview = `email:${email.uid}`;
-  const { data: existing } = await supabase
-    .from("messages")
-    .select("id")
-    .eq("last_message_preview", preview)
-    .limit(1);
-  if (existing && existing.length > 0) {
-    return { id: null, reason: "duplicate" };
-  }
-
-  const { data: inserted, error: msgErr } = await supabase
-    .from("messages")
-    .insert({
-      property_id: null,
-      guest_name: email.guestName,
-      platform: "Email",
-      status: "inquiry",
-      booking_dates: null,
-      unread: true,
-      last_message_preview: preview,
-      last_message_at: email.receivedAt,
-    })
-    .select()
-    .single();
-
-  if (msgErr || !inserted) {
-    const code = (msgErr && (msgErr.code || "")) || "";
-    const message = (msgErr && msgErr.message) || "unknown insert failure";
-    return { id: null, reason: `insert messages failed: [${code}] ${message}` };
-  }
-
-  const bodyText = `From: ${email.fromAddr}\nTo: ${email.toText}\nDate: ${email.receivedAt}\nSubject: ${email.subject}`;
-  const { error: threadErr } = await supabase
-    .from("message_threads")
-    .insert({
-      message_id: inserted.id,
-      sender: "guest",
-      text: bodyText,
-    });
-
-  if (threadErr) {
-    return {
-      id: inserted.id,
-      reason: `message stored but thread insert failed: ${threadErr.message}`,
-    };
-  }
-
-  return { id: inserted.id };
 }
