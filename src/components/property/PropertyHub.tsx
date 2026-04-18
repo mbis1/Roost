@@ -11,6 +11,8 @@ import { WifiTechCard } from "@/components/property/cards/WifiTechCard";
 import { ListingsCard } from "@/components/property/cards/ListingsCard";
 import { PricingRulesCard } from "@/components/property/cards/PricingRulesCard";
 import { NotesCard } from "@/components/property/cards/NotesCard";
+import { ArrivalFlowCard } from "@/components/property/cards/ArrivalFlowCard";
+import { DepartureFlowCard } from "@/components/property/cards/DepartureFlowCard";
 
 type SubTab = "operations" | "business";
 
@@ -135,20 +137,9 @@ export function PropertyHub({ propertyId }: { propertyId: string }) {
               placeholder="Breaker panel location, HVAC quirks, appliance oddities, things that break often, troubleshooting notes…"
               onSave={save}
             />
-            <NotesCard
-              icon="login"
-              title="Arrival Flow"
-              section="arrival_flow"
-              data={bySection["arrival_flow"]}
-              placeholder="Check-in time window, parking instructions, welcome message, pre-arrival message template…"
-              onSave={save}
-            />
-            <NotesCard
-              icon="logout"
-              title="Departure Flow"
-              section="departure_flow"
+            <ArrivalFlowCard data={bySection["arrival_flow"]} onSave={save} />
+            <DepartureFlowCard
               data={bySection["departure_flow"]}
-              placeholder="Check-out time, cleaner trigger rules, linen handling, trash day…"
               onSave={save}
             />
             <NotesCard
