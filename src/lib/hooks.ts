@@ -196,22 +196,74 @@ export async function assignEmailToProperty(
 export function useUserSettings() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("user_settings").select("*").limit(1).single();
-      if (data) setSettings(data as UserSettings);
-      setLoading(false);
+      try {
+        // 1. Try to read an existing row.
+        const { data: existing, error: readErr } = await supabase
+          .from("user_settings")
+          .select("*")
+          .limit(1)
+          .maybeSingle();
+
+        if (readErr) {
+          setError(readErr.message);
+          return;
+        }
+
+        if (existing) {
+          setSettings(existing as UserSettings);
+          return;
+        }
+
+        // 2. No row yet → create one for the current auth user.
+        // Schema has user_id UNIQUE references auth.users; everything else
+        // has defaults, so an insert with just user_id is enough.
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData?.user?.id;
+        if (!userId) {
+          setError(
+            "You're not signed in — can't create a settings row. Try signing out and back in."
+          );
+          return;
+        }
+
+        const { data: created, error: insertErr } = await supabase
+          .from("user_settings")
+          .insert({ user_id: userId })
+          .select()
+          .single();
+
+        if (insertErr) {
+          setError(`Couldn't create settings row: ${insertErr.message}`);
+          return;
+        }
+        setSettings(created as UserSettings);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
   const updateSettings = async (updates: Partial<UserSettings>) => {
     if (!settings) return;
-    const { error } = await supabase.from("user_settings").update(updates).eq("id", settings.id);
-    if (!error) setSettings({ ...settings, ...updates });
+    const { error: updErr } = await supabase
+      .from("user_settings")
+      .update(updates)
+      .eq("id", settings.id);
+    if (updErr) {
+      console.error("user_settings update error:", updErr);
+      setError(updErr.message);
+      return;
+    }
+    setSettings({ ...settings, ...updates });
   };
 
-  return { settings, loading, updateSettings };
+  return { settings, loading, error, updateSettings };
 }
 
 export async function insertRow(table: string, data: Record<string, unknown>) {

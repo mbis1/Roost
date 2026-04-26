@@ -20,17 +20,40 @@ type TestState = {
 const idle: TestState = { status: "idle" };
 
 export function SettingsTab() {
-  const { settings, updateSettings } = useUserSettings();
+  const { settings, loading, error, updateSettings } = useUserSettings();
   const [botTest, setBotTest] = useState<TestState>(idle);
   const [sendTest, setSendTest] = useState<TestState>(idle);
   const [hookTest, setHookTest] = useState<TestState>(idle);
   const [aiTest, setAiTest] = useState<TestState>(idle);
   const [aiSample, setAiSample] = useState<string | null>(null);
 
-  if (!settings)
+  if (loading) {
     return (
-      <p className="text-txt-secondary text-sm">Loading settings...</p>
+      <p className="text-txt-secondary text-sm">Loading settings…</p>
     );
+  }
+  if (error) {
+    return (
+      <div className="max-w-xl">
+        <SectionTitle>Settings</SectionTitle>
+        <Card>
+          <div className="font-bold text-sm mb-1 text-status-red">
+            Couldn&apos;t load settings
+          </div>
+          <p className="text-xs text-txt-secondary leading-relaxed">
+            {error}
+          </p>
+        </Card>
+      </div>
+    );
+  }
+  if (!settings) {
+    return (
+      <p className="text-txt-secondary text-sm">
+        No settings available yet.
+      </p>
+    );
+  }
 
   const u = (k: string, v: unknown) =>
     updateSettings({ [k]: v } as never);
