@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabaseAdmin } from "./supabase-admin";
 import { generateAIDraft, type AIContext } from "./ai";
 
 export type TelegramConfig = {
@@ -137,7 +137,7 @@ export async function processAndNotify(
 ): Promise<boolean> {
   try {
     // Fetch the message and its property
-    const { data: message } = await supabase
+    const { data: message } = await supabaseAdmin
       .from("messages")
       .select("*, property:properties(*)")
       .eq("id", messageId)
@@ -148,7 +148,7 @@ export async function processAndNotify(
     const property = message.property;
 
     // Get latest guest message from thread
-    const { data: threads } = await supabase
+    const { data: threads } = await supabaseAdmin
       .from("message_threads")
       .select("*")
       .eq("message_id", messageId)
@@ -159,7 +159,7 @@ export async function processAndNotify(
     const lastGuestMessage = threads?.[0]?.text || message.last_message_preview || "";
 
     // Get property rules
-    const { data: rulesArr } = await supabase
+    const { data: rulesArr } = await supabaseAdmin
       .from("property_rules")
       .select("*")
       .eq("property_id", property.id)
@@ -167,7 +167,7 @@ export async function processAndNotify(
     const rules = rulesArr?.[0];
 
     // Get user settings for AI config
-    const { data: settings } = await supabase
+    const { data: settings } = await supabaseAdmin
       .from("user_settings")
       .select("*")
       .limit(1)
@@ -204,7 +204,7 @@ export async function processAndNotify(
     );
 
     // Store draft in message thread
-    await supabase.from("message_threads").insert({
+    await supabaseAdmin.from("message_threads").insert({
       message_id: messageId,
       sender: "ai_draft",
       text: draft,

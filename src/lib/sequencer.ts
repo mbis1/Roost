@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabaseAdmin } from "./supabase-admin";
 import { generateAIDraft, generateWelcomeLetter, type AIContext } from "./ai";
 import { sendSequencedDraft, getTelegramConfig, type TelegramConfig } from "./telegram";
 
@@ -120,7 +120,7 @@ export async function runMessageSequencer(): Promise<{
   const today = getDateStr(new Date());
 
   // Fetch all active messages with confirmed bookings
-  const { data: messages } = await supabase
+  const { data: messages } = await supabaseAdmin
     .from("messages")
     .select("*, property:properties(*)")
     .in("status", ["confirmed", "inquiry"])
@@ -138,7 +138,7 @@ export async function runMessageSequencer(): Promise<{
     if (!dates) continue;
 
     // Get property rules
-    const { data: rulesArr } = await supabase
+    const { data: rulesArr } = await supabaseAdmin
       .from("property_rules")
       .select("*")
       .eq("property_id", property.id)
@@ -173,7 +173,7 @@ export async function runMessageSequencer(): Promise<{
 
       // Check if we already sent this step for this message
       const stepKey = `seq_${step.id}_${message.id}`;
-      const { data: existing } = await supabase
+      const { data: existing } = await supabaseAdmin
         .from("message_threads")
         .select("id")
         .eq("message_id", message.id)
@@ -188,7 +188,7 @@ export async function runMessageSequencer(): Promise<{
         const taggedDraft = `[${step.id}] ${draftText}`;
 
         // Store in message thread
-        await supabase.from("message_threads").insert({
+        await supabaseAdmin.from("message_threads").insert({
           message_id: message.id,
           sender: "ai_draft",
           text: taggedDraft,
@@ -249,7 +249,7 @@ export async function onBookingConfirmed(messageId: string): Promise<void> {
   const config = await getTelegramConfig();
   if (!config) return;
 
-  const { data: message } = await supabase
+  const { data: message } = await supabaseAdmin
     .from("messages")
     .select("*, property:properties(*)")
     .eq("id", messageId)
@@ -285,7 +285,7 @@ export async function onBookingConfirmed(messageId: string): Promise<void> {
 
   const draftText = step.templateFn(ctx);
 
-  await supabase.from("message_threads").insert({
+  await supabaseAdmin.from("message_threads").insert({
     message_id: messageId,
     sender: "ai_draft",
     text: `[booking_confirmed] ${draftText}`,

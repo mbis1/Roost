@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabaseAdmin } from "./supabase-admin";
 
 export type BookingRecord = {
   id: string; property_id: string; platform: string; check_in: string; check_out: string;
@@ -184,25 +184,25 @@ export function getSuggestedRates(analysis: PricingAnalysis) {
 function round(n: number): number { return Math.round(n * 100) / 100; }
 
 export async function fetchBookingHistory(propertyId: string): Promise<BookingRecord[]> {
-  const { data, error } = await supabase.from("booking_history").select("*").eq("property_id", propertyId).order("check_in", { ascending: false });
+  const { data, error } = await supabaseAdmin.from("booking_history").select("*").eq("property_id", propertyId).order("check_in", { ascending: false });
   if (error) { console.error("Fetch bookings error:", error); return []; }
   return data || [];
 }
 
 export async function fetchCompetitors(propertyId: string): Promise<CompetitorListing[]> {
-  const { data, error } = await supabase.from("competitor_listings").select("*").eq("property_id", propertyId);
+  const { data, error } = await supabaseAdmin.from("competitor_listings").select("*").eq("property_id", propertyId);
   if (error) { console.error("Fetch competitors error:", error); return []; }
   return data || [];
 }
 
 export async function fetchSeasonalRules(propertyId: string): Promise<SeasonalRule[]> {
-  const { data, error } = await supabase.from("seasonal_rules").select("*").eq("property_id", propertyId);
+  const { data, error } = await supabaseAdmin.from("seasonal_rules").select("*").eq("property_id", propertyId);
   if (error) { console.error("Fetch seasonal rules error:", error); return []; }
   return data || [];
 }
 
 export async function saveRecommendation(propertyId: string, rec: PriceRecommendation): Promise<void> {
-  await supabase.from("price_recommendations").upsert({
+  await supabaseAdmin.from("price_recommendations").upsert({
     property_id: propertyId, recommended_date: rec.date, base_rate: rec.baseRate,
     seasonal_adjustment: rec.seasonalAdjustment, competitor_rate: rec.competitorRate,
     recommended_rate: rec.recommendedRate, day_of_week: rec.dayOfWeek, is_weekend: rec.isWeekend,
@@ -211,6 +211,6 @@ export async function saveRecommendation(propertyId: string, rec: PriceRecommend
 }
 
 export async function addBookingRecord(booking: Omit<BookingRecord, "id" | "nights">): Promise<void> {
-  const { error } = await supabase.from("booking_history").insert(booking);
+  const { error } = await supabaseAdmin.from("booking_history").insert(booking);
   if (error) console.error("Add booking error:", error);
 }

@@ -21,7 +21,7 @@
 
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const TARGET_ADDRESS = "anjeyka@yahoo.com";
 const DEFAULT_DAYS = 30;
@@ -150,7 +150,7 @@ export async function processAnjeykaEmails(
       for (const m of matches) {
         const rawUid = String(m.uid);
 
-        const { data: existing } = await supabase
+        const { data: existing } = await supabaseAdmin
           .from("emails")
           .select("id")
           .eq("raw_uid", rawUid)
@@ -184,7 +184,7 @@ export async function processAnjeykaEmails(
           );
         }
 
-        const { data: inserted, error: insertErr } = await supabase
+        const { data: inserted, error: insertErr } = await supabaseAdmin
           .from("emails")
           .insert({
             from_addr: m.fromAddr,
