@@ -4,12 +4,11 @@
   gap: 20px;
   align-items: flex-start;
   min-height: 720px;
-  /* Default: nothing selected → center the list */
+  /* List + (optional) pane are kept centered together. When the pane is
+     hidden, the list is dead-center. When the pane is shown, flex
+     re-centers both, so the list only moves left by roughly half the
+     pane width — a gentle shift instead of a slam to the edge. */
   justify-content: center;
-}
-.wf.wfHasOpen {
-  /* Step open → list shifts to the left, pane fills the rest */
-  justify-content: flex-start;
 }
 
 .wfList {
@@ -167,8 +166,11 @@
 }
 
 .wfPane {
-  flex: 1;
-  min-width: 0;
+  /* Capped width so the pane doesn't gobble the whole row and the list
+     doesn't get shoved all the way to the edge. */
+  flex: 0 1 460px;
+  max-width: 460px;
+  min-width: 320px;
   position: sticky;
   top: 0;
   align-self: flex-start;
@@ -191,7 +193,7 @@
   padding: 18px 20px;
   opacity: 0;
   transform: translateX(-12px);
-  transition: opacity 240ms ease, transform 240ms ease;
+  transition: opacity 280ms ease, transform 280ms ease;
   font-family: 'Manrope', 'Inter', system-ui, sans-serif;
 }
 .wfPaneCard.isVisible {

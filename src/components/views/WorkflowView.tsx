@@ -184,7 +184,7 @@ export default function WorkflowView({ propertyId }: Props) {
       <h2 className="sr-only">
         Workflow diagram. Steps on the left. Deliverables editor on the right.
       </h2>
-      <div className={`${styles.wf} ${openId ? styles.wfHasOpen : ""}`}>
+      <div className={styles.wf}>
         <div
           className={`${styles.wfList} ${openId ? styles.isDimmed : ""}`}
         >
