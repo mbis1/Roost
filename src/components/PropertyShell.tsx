@@ -9,6 +9,7 @@ import { Icon } from "@/components/Icon";
 import { AddPropertyModal } from "@/components/modals/AddPropertyModal";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { PropertyHub } from "@/components/property/PropertyHub";
+import { WorkflowView } from "@/components/views/WorkflowView";
 import { MessagesTab } from "@/components/tabs/MessagesTab";
 import { CalendarTab } from "@/components/tabs/CalendarTab";
 import { VendorsTab } from "@/components/tabs/VendorsTab";
@@ -17,6 +18,7 @@ import { useProperty } from "@/lib/hooks";
 
 const PROPERTY_TABS = [
   { id: "overview", label: "Overview", icon: "home" },
+  { id: "workflow", label: "Workflow", icon: "account_tree" },
   { id: "messages", label: "Messages", icon: "chat" },
   { id: "calendar", label: "Calendar", icon: "calendar_today" },
   { id: "vendors", label: "Vendors", icon: "people" },
@@ -114,6 +116,9 @@ export function PropertyShell({ propertyId }: { propertyId: string }) {
 
         <main className="flex-1 overflow-y-auto p-5">
           {activeTab === "overview" && <PropertyHub propertyId={propertyId} />}
+          {activeTab === "workflow" && (
+            <WorkflowView propertyId={propertyId} />
+          )}
           {activeTab === "messages" && (
             <MessagesTab propertyId={propertyId} />
           )}
