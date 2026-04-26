@@ -1,0 +1,376 @@
+.wf {
+  padding: 1rem 0;
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  min-height: 720px;
+}
+
+.wfList {
+  width: 360px;
+  flex-shrink: 0;
+  transition: opacity 200ms ease;
+}
+.wfList.isDimmed {
+  opacity: 0.55;
+}
+
+.wfPhase {
+  margin: 0 0 1rem;
+}
+.wfPhaseLabel {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary, #5F5E5A);
+  margin: 0 0 6px 4px;
+}
+.wfPhaseLine {
+  height: 0.5px;
+  background: var(--color-border-tertiary, rgba(0,0,0,0.08));
+  margin: 0 0 10px;
+}
+
+.wfStepRow {
+  display: flex;
+}
+.wfConnector {
+  width: 0.5px;
+  height: 16px;
+  background: var(--color-border-secondary, rgba(0,0,0,0.15));
+  margin-left: 26px;
+}
+
+.wfStep {
+  width: 360px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.08));
+  background: var(--color-background-primary, #FFFFFF);
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, opacity 200ms ease;
+  user-select: none;
+  position: relative;
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+.wfStep:hover {
+  border-color: var(--color-border-primary, rgba(0,0,0,0.25));
+}
+.wfStep.isOpen {
+  border-color: #ba0036;
+  box-shadow: 0 0 0 1px #ba0036;
+  opacity: 1 !important;
+}
+.wfList.isDimmed .wfStep:not(.isOpen) {
+  opacity: 0.55;
+}
+
+.wfStep::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -10px;
+  transform: translateY(-50%);
+  width: 0.5px;
+  height: 0;
+  background: #ba0036;
+  transition: height 200ms ease;
+}
+.wfStep.isOpen::before {
+  height: 24px;
+}
+
+.wfHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wfDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.wfDotManual { background: var(--color-text-tertiary, #888780); }
+.wfDotSemi { background: #D4537E; }
+.wfDotAuto { background: #1D9E75; }
+.wfDotSkipped { background: var(--color-border-secondary, rgba(0,0,0,0.15)); }
+
+.wfNum {
+  font-size: 11px;
+  color: var(--color-text-secondary, #5F5E5A);
+  font-variant-numeric: tabular-nums;
+}
+.wfTitle {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary, #2C2C2A);
+}
+.wfStep.isSkipped .wfTitle {
+  color: var(--color-text-tertiary, #888780);
+  text-decoration: line-through;
+}
+.wfSummary {
+  font-size: 12px;
+  color: var(--color-text-secondary, #5F5E5A);
+  margin-top: 4px;
+  padding-left: 20px;
+}
+
+.wfMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.wfBadge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.wfBadgeManual {
+  background: var(--color-background-secondary, #F1EFE8);
+  color: var(--color-text-secondary, #5F5E5A);
+}
+.wfBadgeSemi {
+  background: #FBEAF0;
+  color: #993556;
+}
+.wfBadgeAuto {
+  background: #E1F5EE;
+  color: #0F6E56;
+}
+.wfBadgeSkipped {
+  background: transparent;
+  color: var(--color-text-tertiary, #888780);
+  border: 0.5px dashed var(--color-border-secondary, rgba(0,0,0,0.15));
+}
+
+.wfChev {
+  font-size: 10px;
+  color: var(--color-text-tertiary, #888780);
+  transition: transform 200ms ease, color 160ms ease;
+}
+.wfStep.isOpen .wfChev {
+  transform: translateX(2px);
+  color: #ba0036;
+}
+
+.wfPane {
+  flex: 1;
+  min-width: 0;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+}
+
+.wfPaneEmpty {
+  border-radius: 12px;
+  border: 0.5px dashed var(--color-border-secondary, rgba(0,0,0,0.15));
+  padding: 32px 24px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-text-tertiary, #888780);
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+
+.wfPaneCard {
+  border-radius: 12px;
+  border: 0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.08));
+  background: var(--color-background-primary, #FFFFFF);
+  padding: 18px 20px;
+  opacity: 0;
+  transform: translateX(-12px);
+  transition: opacity 240ms ease, transform 240ms ease;
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+.wfPaneCard.isVisible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.wfPaneHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.08));
+  margin-bottom: 14px;
+}
+.wfPaneNum {
+  font-size: 11px;
+  color: var(--color-text-secondary, #5F5E5A);
+  font-variant-numeric: tabular-nums;
+}
+.wfPaneTitle {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text-primary, #2C2C2A);
+}
+.wfPaneClose {
+  margin-left: auto;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--color-text-tertiary, #888780);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 8px;
+  transition: background 120ms ease;
+  border: none;
+  background: transparent;
+}
+.wfPaneClose:hover {
+  background: var(--color-background-secondary, #F1EFE8);
+  color: var(--color-text-primary, #2C2C2A);
+}
+
+.wfPaneOverview {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--color-text-secondary, #5F5E5A);
+  margin-bottom: 14px;
+}
+.wfPaneOverview strong {
+  font-weight: 500;
+  color: var(--color-text-primary, #2C2C2A);
+}
+
+.wfDeliv {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--color-background-secondary, #F1EFE8);
+  border: 0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.08));
+  margin-bottom: 10px;
+}
+.wfDeliv:last-child {
+  margin-bottom: 0;
+}
+
+.wfDelivHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-primary, #2C2C2A);
+  margin-bottom: 6px;
+}
+.wfDelivIcon {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: var(--color-background-primary, #FFFFFF);
+  border: 0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.08));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--color-text-secondary, #5F5E5A);
+  flex-shrink: 0;
+}
+.wfDelivTrigger {
+  font-size: 10px;
+  color: var(--color-text-tertiary, #888780);
+  margin-left: auto;
+}
+
+.wfDelivBody {
+  font-size: 12px;
+  color: var(--color-text-primary, #2C2C2A);
+  background: var(--color-background-primary, #FFFFFF);
+  border: 0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.08));
+  border-radius: 8px;
+  padding: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.wfVar {
+  background: #FBEAF0;
+  color: #993556;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.wfDelivMeta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--color-text-secondary, #5F5E5A);
+}
+.wfDelivMeta strong {
+  font-weight: 500;
+  color: var(--color-text-primary, #2C2C2A);
+}
+.wfSource {
+  font-size: 10px;
+  color: var(--color-text-tertiary, #888780);
+  margin-top: 6px;
+}
+
+.wfDelivActions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.wfEditBtn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 0.5px solid var(--color-border-secondary, rgba(0,0,0,0.15));
+  background: var(--color-background-primary, #FFFFFF);
+  color: var(--color-text-primary, #2C2C2A);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+.wfEditBtn:hover {
+  background: var(--color-background-secondary, #F1EFE8);
+  border-color: var(--color-border-primary, rgba(0,0,0,0.25));
+}
+
+.wfNoDeliv {
+  padding: 16px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #5F5E5A);
+  font-style: italic;
+  text-align: center;
+  background: var(--color-background-secondary, #F1EFE8);
+  border-radius: 8px;
+}
+
+.wfLegend {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.08));
+  font-size: 11px;
+  color: var(--color-text-secondary, #5F5E5A);
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+.wfLegendItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wfStep,
+  .wfPaneCard,
+  .wfChev,
+  .wfStep::before,
+  .wfList {
+    transition: none !important;
+  }
+}

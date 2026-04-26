@@ -9,7 +9,7 @@ import { Icon } from "@/components/Icon";
 import { AddPropertyModal } from "@/components/modals/AddPropertyModal";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { PropertyHub } from "@/components/property/PropertyHub";
-import { WorkflowView } from "@/components/views/WorkflowView";
+import WorkflowView from "@/components/views/WorkflowView";
 import { MessagesTab } from "@/components/tabs/MessagesTab";
 import { CalendarTab } from "@/components/tabs/CalendarTab";
 import { VendorsTab } from "@/components/tabs/VendorsTab";
