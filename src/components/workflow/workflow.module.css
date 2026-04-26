@@ -4,6 +4,12 @@
   gap: 20px;
   align-items: flex-start;
   min-height: 720px;
+  /* Default: nothing selected → center the list */
+  justify-content: center;
+}
+.wf.wfHasOpen {
+  /* Step open → list shifts to the left, pane fills the rest */
+  justify-content: flex-start;
 }
 
 .wfList {
@@ -363,6 +369,111 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* ----- Override indicator on the step list ----- */
+.wfOverrideTag {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #FBEAF0;
+  color: #993556;
+  margin-left: 4px;
+}
+
+/* ----- Inline editor (used inside .wfDeliv when editing) ----- */
+.wfChipBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.wfChip {
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.08));
+  background: var(--color-background-primary, #FFFFFF);
+  color: var(--color-text-secondary, #5F5E5A);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+.wfChip:hover {
+  background: #FBEAF0;
+  color: #993556;
+  border-color: #D4537E;
+}
+
+.wfTextarea {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-primary, #2C2C2A);
+  background: var(--color-background-primary, #FFFFFF);
+  border: 0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.08));
+  border-radius: 8px;
+  padding: 10px;
+  resize: vertical;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.wfTextarea:focus {
+  border-color: #ba0036;
+  box-shadow: 0 0 0 1px #ba0036;
+}
+
+.wfEditActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+}
+.wfBtnPrimary {
+  font-size: 11px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  border: 0.5px solid #ba0036;
+  background: #ba0036;
+  color: #FFFFFF;
+  cursor: pointer;
+  transition: background 120ms ease, opacity 120ms ease;
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+.wfBtnPrimary:hover {
+  background: #9a002b;
+  border-color: #9a002b;
+}
+.wfBtnPrimary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.wfHint {
+  font-size: 11px;
+  color: var(--color-text-tertiary, #888780);
+  margin-bottom: 6px;
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+
+.wfErrorMsg {
+  font-size: 11px;
+  color: #993556;
+  margin-top: 6px;
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+
+.wfResetRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.08));
 }
 
 @media (prefers-reduced-motion: reduce) {
