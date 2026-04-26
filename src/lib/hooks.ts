@@ -104,6 +104,21 @@ export function usePropertyDetails(propertyId: string | null | undefined) {
         console.error("save property_details error:", error);
       }
       await refetch();
+
+      // Sprint B.2 — trigger workflow recompile when a workflow-participating
+      // card is saved. Fire-and-forget; recompile failure must never block UX.
+      // The endpoint runs on the server with the service-role key.
+      if (
+        section === "access_and_locks" ||
+        section === "arrival_flow" ||
+        section === "departure_flow"
+      ) {
+        fetch(`/api/property/${propertyId}/recompile-workflow`, {
+          method: "POST",
+        }).catch((err) =>
+          console.error("workflow recompile trigger failed:", err)
+        );
+      }
     },
     [propertyId, refetch]
   );
