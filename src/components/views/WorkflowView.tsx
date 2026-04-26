@@ -221,6 +221,7 @@ export default function WorkflowView({ propertyId }: Props) {
             <DeliverablesPane
               step={openStep}
               visible={paneVisible}
+              propertyId={propertyId}
               onClose={() => {
                 setOpenId(null);
                 setPaneVisible(false);
@@ -322,12 +323,14 @@ function StepCard({
 function DeliverablesPane({
   step,
   visible,
+  propertyId,
   onClose,
   onSaveOverride,
   onClearOverride,
 }: {
   step: StepWithMeta;
   visible: boolean;
+  propertyId: string;
   onClose: () => void;
   onSaveOverride: (override: Partial<WorkflowStep>) => Promise<void>;
   onClearOverride: () => Promise<void>;
@@ -343,13 +346,56 @@ function DeliverablesPane({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [runningIdx, setRunningIdx] = useState<number | null>(null);
+  const [runResult, setRunResult] = useState<{
+    actionIdx: number;
+    ok: boolean;
+    message: string;
+  } | null>(null);
 
   // Reset edit state if the user switches to a different step.
   useEffect(() => {
     setEditingIdx(null);
     setEditText("");
     setError(null);
+    setRunResult(null);
   }, [step.id]);
+
+  const runStep = async (actionIdx: number) => {
+    setRunningIdx(actionIdx);
+    setRunResult(null);
+    try {
+      const r = await fetch(`/api/property/${propertyId}/run-step`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step_id: step.id, action_index: actionIdx }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        setRunResult({
+          actionIdx,
+          ok: false,
+          message: j.error || `Failed (${r.status})`,
+        });
+      } else {
+        setRunResult({
+          actionIdx,
+          ok: true,
+          message: j.ai_used
+            ? "Sent to your Telegram (AI-polished). Check your phone to approve or reject."
+            : "Sent to your Telegram. Check your phone to approve or reject.",
+        });
+      }
+    } catch (e) {
+      setRunResult({
+        actionIdx,
+        ok: false,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setRunningIdx(null);
+    }
+  };
 
   const startEdit = (idx: number, currentText: string) => {
     setEditingIdx(idx);
@@ -447,6 +493,13 @@ function DeliverablesPane({
               onTextChange={setEditText}
               onCancelEdit={cancelEdit}
               onSaveEdit={saveEdit}
+              isRunning={runningIdx === actionIdx}
+              onRun={() => runStep(actionIdx)}
+              runResult={
+                runResult && runResult.actionIdx === actionIdx
+                  ? runResult
+                  : null
+              }
             />
           );
         })
@@ -481,6 +534,9 @@ function DeliverableCard({
   onTextChange,
   onCancelEdit,
   onSaveEdit,
+  isRunning,
+  onRun,
+  runResult,
 }: {
   action: WorkflowAction;
   step: StepWithMeta;
@@ -491,6 +547,9 @@ function DeliverableCard({
   onTextChange: (next: string) => void;
   onCancelEdit: () => void;
   onSaveEdit: () => void;
+  isRunning: boolean;
+  onRun: () => void;
+  runResult: { ok: boolean; message: string } | null;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -604,6 +663,24 @@ function DeliverableCard({
               <button className={styles.wfEditBtn} onClick={onStartEdit}>
                 Edit message
               </button>
+              <button
+                className={styles.wfBtnPrimary}
+                onClick={onRun}
+                disabled={isRunning}
+                title="Resolve this template with sample data, optionally polish via AI, and ping your Telegram for approval"
+              >
+                {isRunning ? "Running…" : "▶ Run step now"}
+              </button>
+            </div>
+          )}
+          {runResult && (
+            <div
+              className={
+                runResult.ok ? styles.wfHint : styles.wfErrorMsg
+              }
+              style={{ marginTop: 6 }}
+            >
+              {runResult.message}
             </div>
           )}
         </>

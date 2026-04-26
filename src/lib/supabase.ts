@@ -177,4 +177,23 @@ export type UserSettings = {
   ai_provider: string;
   ai_api_key: string;
   ai_tone: string;
+  telegram_bot_token: string;
+  telegram_chat_id: string;
+};
+
+export type WorkflowRun = {
+  id: string;
+  property_id: string;
+  step_id: string;
+  action_index: number;
+  triggered_by: "manual" | "cron" | "event";
+  channel: string;
+  recipient: string;
+  resolved_template: string;
+  ai_refined_template: string;
+  status: "pending" | "approved" | "rejected";
+  telegram_chat_id: string;
+  telegram_message_id: number | null;
+  created_at: string;
+  decided_at: string | null;
 };

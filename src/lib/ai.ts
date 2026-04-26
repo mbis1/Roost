@@ -15,20 +15,99 @@ function buildPrompt(ctx: AIContext): string {
 export async function generateAIDraft(ctx: AIContext, provider: string = "huggingface", apiKey: string = ""): Promise<string> {
   if (!apiKey) return fallbackResponse(ctx);
   try {
+    if (provider === "groq") return await callGroq(buildPrompt(ctx), apiKey);
     if (provider === "huggingface") return await callHuggingFace(ctx, apiKey);
     return fallbackResponse(ctx);
   } catch (error) { console.error("AI generation failed:", error); return fallbackResponse(ctx); }
 }
 
+/**
+ * Sprint B.4 — refine a workflow draft. Used by the run-step endpoint
+ * to give a templated message a more natural, host-tone polish before
+ * sending to Telegram for approval. Returns the draft unchanged on
+ * configuration / network failure.
+ */
+export async function refineWorkflowDraft(opts: {
+  rawTemplate: string;
+  propertyName: string;
+  tone: "friendly" | "formal" | "casual";
+  provider: string;
+  apiKey: string;
+}): Promise<string> {
+  const { rawTemplate, propertyName, tone, provider, apiKey } = opts;
+  if (!apiKey) return rawTemplate;
+  const prompt =
+    `You are an assistant helping a short-term rental host send guest messages. ` +
+    `Below is a templated message about the property "${propertyName}". The tone target is "${tone}". ` +
+    `Lightly polish the wording so it reads naturally. Keep all {{placeholder}} tokens EXACTLY as-is — ` +
+    `do not resolve them, do not invent values. Keep the message length similar. Do not add greetings ` +
+    `or sign-offs that aren't already there. Return ONLY the polished message text.\n\n` +
+    `Message:\n${rawTemplate}`;
+  try {
+    if (provider === "groq") return await callGroq(prompt, apiKey);
+    if (provider === "huggingface") {
+      // The HF inference API for the existing model returns raw completions.
+      const out = await callHuggingFaceRaw(prompt, apiKey);
+      return out || rawTemplate;
+    }
+    return rawTemplate;
+  } catch (e) {
+    console.error("refineWorkflowDraft failed:", e);
+    return rawTemplate;
+  }
+}
+
 async function callHuggingFace(ctx: AIContext, apiKey: string): Promise<string> {
+  const out = await callHuggingFaceRaw(buildPrompt(ctx), apiKey);
+  if (out) return out;
+  throw new Error("Unexpected HuggingFace response format");
+}
+
+async function callHuggingFaceRaw(prompt: string, apiKey: string): Promise<string> {
   const response = await fetch("https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct", {
     method: "POST", headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify({ inputs: buildPrompt(ctx), parameters: { max_new_tokens: 300, temperature: 0.7, top_p: 0.9, return_full_text: false } }),
+    body: JSON.stringify({ inputs: prompt, parameters: { max_new_tokens: 300, temperature: 0.7, top_p: 0.9, return_full_text: false } }),
   });
   if (!response.ok) throw new Error("HuggingFace API error: " + response.status);
   const data = await response.json();
   if (Array.isArray(data) && data[0]?.generated_text) return data[0].generated_text.trim();
-  throw new Error("Unexpected HuggingFace response format");
+  return "";
+}
+
+/**
+ * Groq via OpenAI-compatible /chat/completions. Free tier model:
+ * llama-3.1-8b-instant (fast, ~200ms). Returns the assistant text.
+ */
+async function callGroq(prompt: string, apiKey: string): Promise<string> {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "llama-3.1-8b-instant",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a concise, helpful assistant for a short-term rental host. " +
+            "Keep responses focused and natural.",
+        },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 400,
+      temperature: 0.7,
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Groq API error: ${response.status} ${text}`);
+  }
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content === "string" && content.trim()) return content.trim();
+  throw new Error("Unexpected Groq response format");
 }
 
 function fallbackResponse(ctx: AIContext): string {

@@ -16,12 +16,193 @@ export type DraftNotification = {
   bookingDates: string;
 };
 
-// Get Telegram config from env vars
+// Get Telegram config. Sprint B.4: prefer the user_settings row so the
+// user can manage tokens from the Settings UI; fall back to env vars so
+// any pre-B.4 deployments still work without code changes.
 export async function getTelegramConfig(): Promise<TelegramConfig | null> {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN || "";
-  const chatId = process.env.TELEGRAM_CHAT_ID || "";
+  let botToken = "";
+  let chatId = "";
+  try {
+    const { data } = await supabaseAdmin
+      .from("user_settings")
+      .select("telegram_bot_token, telegram_chat_id")
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      botToken = (data.telegram_bot_token as string) || "";
+      chatId = (data.telegram_chat_id as string) || "";
+    }
+  } catch {
+    /* fall through to env vars */
+  }
+  if (!botToken) botToken = process.env.TELEGRAM_BOT_TOKEN || "";
+  if (!chatId) chatId = process.env.TELEGRAM_CHAT_ID || "";
   if (!botToken || !chatId) return null;
   return { botToken, chatId };
+}
+
+/**
+ * Verify a bot token by calling Telegram's getMe.
+ * Returns the bot's metadata on success or an error string on failure.
+ */
+export async function verifyBotToken(
+  botToken: string
+): Promise<{ ok: true; bot: { id: number; username: string; first_name: string } } | { ok: false; error: string }> {
+  if (!botToken) return { ok: false, error: "Bot token is empty" };
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+      return { ok: false, error: j.description || `HTTP ${r.status}` };
+    }
+    return {
+      ok: true,
+      bot: {
+        id: j.result.id,
+        username: j.result.username,
+        first_name: j.result.first_name,
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Tell Telegram to POST updates to our webhook. Idempotent — Telegram
+ * just overwrites whatever URL was set previously.
+ */
+export async function setBotWebhook(
+  botToken: string,
+  webhookUrl: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!botToken) return { ok: false, error: "Bot token is empty" };
+  if (!webhookUrl) return { ok: false, error: "Webhook URL is empty" };
+  try {
+    const r = await fetch(
+      `https://api.telegram.org/bot${botToken}/setWebhook?url=${encodeURIComponent(
+        webhookUrl
+      )}`
+    );
+    const j = await r.json();
+    if (!r.ok || !j.ok)
+      return { ok: false, error: j.description || `HTTP ${r.status}` };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Edit a message's text by message_id. Used after the user taps an
+ * Approve / Reject inline button so the original ping reflects the
+ * decision (instead of leaving stale buttons hanging around).
+ */
+export async function editTelegramMessage(
+  config: TelegramConfig,
+  messageId: number,
+  text: string
+): Promise<boolean> {
+  try {
+    const r = await fetch(
+      `https://api.telegram.org/bot${config.botToken}/editMessageText`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: config.chatId,
+          message_id: messageId,
+          text,
+          parse_mode: "HTML",
+        }),
+      }
+    );
+    if (!r.ok) {
+      console.error("editMessageText error:", r.status, await r.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("editMessageText error:", e);
+    return false;
+  }
+}
+
+/**
+ * Acknowledge a callback_query. Required by Telegram's spec to clear the
+ * "loading" spinner on the inline button the user tapped.
+ */
+export async function answerCallbackQuery(
+  botToken: string,
+  callbackQueryId: string,
+  text?: string
+): Promise<void> {
+  try {
+    await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
+    });
+  } catch (e) {
+    console.error("answerCallbackQuery error:", e);
+  }
+}
+
+/**
+ * Sprint B.4 — send a workflow run draft to the host's Telegram with
+ * Approve / Reject inline buttons. Returns the Telegram message_id so
+ * the caller can persist it for later editing.
+ */
+export async function dispatchWorkflowRunToTelegram(
+  config: TelegramConfig,
+  opts: {
+    runId: string;
+    propertyName: string;
+    stepTitle: string;
+    channel: string;
+    recipient: string;
+    triggerLabel: string;
+    draft: string;
+  }
+): Promise<{ ok: true; messageId: number } | { ok: false; error: string }> {
+  const { runId, propertyName, stepTitle, channel, recipient, triggerLabel, draft } = opts;
+  const text =
+    `🤖 <b>${stepTitle}</b> · ${propertyName}\n` +
+    `<i>${triggerLabel} · ${channel} → ${recipient}</i>\n\n` +
+    `${draft.length > 3500 ? draft.slice(0, 3500) + "\n…" : draft}\n\n` +
+    `Tap below to confirm what you'd like to do.`;
+
+  const replyMarkup = {
+    inline_keyboard: [
+      [
+        { text: "✅ Approve", callback_data: `wf_approve:${runId}` },
+        { text: "❌ Reject", callback_data: `wf_reject:${runId}` },
+      ],
+    ],
+  };
+
+  try {
+    const r = await fetch(
+      `https://api.telegram.org/bot${config.botToken}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: config.chatId,
+          text,
+          parse_mode: "HTML",
+          reply_markup: replyMarkup,
+        }),
+      }
+    );
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+      return { ok: false, error: j.description || `HTTP ${r.status}` };
+    }
+    return { ok: true, messageId: j.result.message_id as number };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
 
 // Send a message via Telegram Bot API
