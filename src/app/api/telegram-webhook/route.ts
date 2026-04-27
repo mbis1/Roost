@@ -4,6 +4,7 @@ import {
   getTelegramConfig,
   answerCallbackQuery,
   editTelegramMessage,
+  sendPlainTelegramMessage,
 } from "@/lib/telegram";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
@@ -39,25 +40,31 @@ export async function POST(request: NextRequest) {
             isApprove ? "Approved" : "Rejected"
           );
 
-          // Edit the original message to reflect the decision so the
-          // buttons don't sit there inviting another tap.
           if (message?.message_id && runRow) {
-            const headline = isApprove
-              ? "✅ Approved"
-              : "❌ Rejected";
             const draft = (runRow.ai_refined_template || runRow.resolved_template || "") as string;
-            const footer =
-              `\n\n<i>${headline} at ${decidedAt}.</i>\n` +
-              (isApprove
-                ? `<i>(Sprint B.5 will dispatch this to ${runRow.channel} — for now the decision is logged.)</i>`
-                : `<i>(No message sent.)</i>`);
-            await editTelegramMessage(
-              config,
-              message.message_id,
-              `🤖 <b>Workflow run · ${runRow.step_id}</b>\n\n` +
-                (draft.length > 3500 ? draft.slice(0, 3500) + "\n…" : draft) +
-                footer
-            );
+            const channel = (runRow.channel as string) || "the channel";
+
+            if (isApprove) {
+              // 1. Edit the original to a brief approval status (no body,
+              //    so it doesn't get in the way visually).
+              await editTelegramMessage(
+                config,
+                message.message_id,
+                `🤖 <b>${runRow.step_id}</b>\n\n` +
+                  `✅ <i>Approved. Copy-ready message below — long-press to copy and paste into ${channel}.</i>`
+              );
+              // 2. Send a follow-up message that is JUST the resolved
+              //    text — no formatting, no header, no footer. Long-press
+              //    selects the whole body cleanly.
+              await sendPlainTelegramMessage(config, draft);
+            } else {
+              // Rejected: just acknowledge in the original message.
+              await editTelegramMessage(
+                config,
+                message.message_id,
+                `🤖 <b>${runRow.step_id}</b>\n\n❌ <i>Rejected. No message sent.</i>`
+              );
+            }
           }
         }
         return NextResponse.json({ ok: true });

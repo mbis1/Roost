@@ -129,6 +129,41 @@ export async function editTelegramMessage(
 }
 
 /**
+ * Send a plain-text message with no parse_mode set. Use this for content
+ * the user is going to long-press → copy → paste elsewhere (Airbnb / VRBO).
+ * No <b>, no entity rendering, no link previews — what they see is what
+ * they paste.
+ */
+export async function sendPlainTelegramMessage(
+  config: TelegramConfig,
+  text: string
+): Promise<boolean> {
+  try {
+    const r = await fetch(
+      `https://api.telegram.org/bot${config.botToken}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: config.chatId,
+          text,
+          // No parse_mode — plain text. Cleanest for copy-paste.
+          disable_web_page_preview: true,
+        }),
+      }
+    );
+    if (!r.ok) {
+      console.error("sendPlainTelegramMessage error:", r.status, await r.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("sendPlainTelegramMessage error:", e);
+    return false;
+  }
+}
+
+/**
  * Acknowledge a callback_query. Required by Telegram's spec to clear the
  * "loading" spinner on the inline button the user tapped.
  */
