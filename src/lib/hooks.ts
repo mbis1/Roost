@@ -193,6 +193,38 @@ export async function assignEmailToProperty(
   if (error) console.error("assignEmailToProperty error:", error);
 }
 
+/**
+ * Sprint C.1 — manually re-categorize an email. Updates the email row's
+ * primary_tag, then writes an audit row to categorization_log marked as
+ * a user override so we can later see which rules / AI calls disagreed
+ * with the user's preference.
+ */
+export async function setEmailPrimaryTag(
+  emailId: string,
+  newTag: string,
+  oldTag: string | null
+) {
+  const { error: updErr } = await supabase
+    .from("emails")
+    .update({ primary_tag: newTag })
+    .eq("id", emailId);
+  if (updErr) {
+    console.error("setEmailPrimaryTag update error:", updErr);
+    return;
+  }
+  const { error: logErr } = await supabase
+    .from("categorization_log")
+    .insert({
+      email_id: emailId,
+      primary_tag: oldTag || "other",
+      secondary_tags: [],
+      source: "user_override",
+      user_overridden: true,
+      user_override_to: newTag,
+    });
+  if (logErr) console.error("setEmailPrimaryTag log error:", logErr);
+}
+
 export function useUserSettings() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);

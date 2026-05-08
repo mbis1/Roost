@@ -77,8 +77,19 @@ async function callHuggingFaceRaw(prompt: string, apiKey: string): Promise<strin
 /**
  * Groq via OpenAI-compatible /chat/completions. Free tier model:
  * llama-3.1-8b-instant (fast, ~200ms). Returns the assistant text.
+ *
+ * `systemPrompt` and `temperature` are optional — different callers
+ * (refine vs categorize) want different behavior.
  */
-async function callGroq(prompt: string, apiKey: string): Promise<string> {
+async function callGroq(
+  prompt: string,
+  apiKey: string,
+  opts?: { systemPrompt?: string; temperature?: number; maxTokens?: number }
+): Promise<string> {
+  const systemPrompt =
+    opts?.systemPrompt ||
+    "You are a concise, helpful assistant for a short-term rental host. " +
+      "Keep responses focused and natural.";
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -88,16 +99,11 @@ async function callGroq(prompt: string, apiKey: string): Promise<string> {
     body: JSON.stringify({
       model: "llama-3.1-8b-instant",
       messages: [
-        {
-          role: "system",
-          content:
-            "You are a concise, helpful assistant for a short-term rental host. " +
-            "Keep responses focused and natural.",
-        },
+        { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
-      max_tokens: 400,
-      temperature: 0.7,
+      max_tokens: opts?.maxTokens ?? 400,
+      temperature: opts?.temperature ?? 0.7,
     }),
   });
   if (!response.ok) {
@@ -108,6 +114,42 @@ async function callGroq(prompt: string, apiKey: string): Promise<string> {
   const content = data?.choices?.[0]?.message?.content;
   if (typeof content === "string" && content.trim()) return content.trim();
   throw new Error("Unexpected Groq response format");
+}
+
+/**
+ * Sprint C.1 — provider-agnostic LLM caller used by the email
+ * categorization fallback. Routes by provider, returns raw text or
+ * null on failure (never throws). Logs errors but doesn't surface
+ * them; the categorizer handles the null path.
+ */
+export async function callLLMText(
+  prompt: string,
+  opts: {
+    provider: string;
+    apiKey: string;
+    systemPrompt?: string;
+    temperature?: number;
+    maxTokens?: number;
+  }
+): Promise<string | null> {
+  if (!opts.apiKey || !opts.provider) return null;
+  try {
+    if (opts.provider === "groq") {
+      return await callGroq(prompt, opts.apiKey, {
+        systemPrompt: opts.systemPrompt,
+        temperature: opts.temperature,
+        maxTokens: opts.maxTokens,
+      });
+    }
+    if (opts.provider === "huggingface") {
+      const out = await callHuggingFaceRaw(prompt, opts.apiKey);
+      return out || null;
+    }
+    return null;
+  } catch (e) {
+    console.error("callLLMText failed:", e);
+    return null;
+  }
 }
 
 function fallbackResponse(ctx: AIContext): string {

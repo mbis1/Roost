@@ -22,6 +22,7 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { categorizeEmail } from "@/lib/categorize";
 
 export const TARGET_ADDRESS = "anjeyka@yahoo.com";
 const DEFAULT_DAYS = 30;
@@ -184,6 +185,29 @@ export async function processAnjeykaEmails(
           );
         }
 
+        // Sprint C.1 — categorize at ingest. Rules first, AI fallback,
+        // "other" as last resort. Best-effort: if categorization throws
+        // for any reason, fall back to null tag and keep ingesting.
+        let primaryTag: string | null = null;
+        let secondaryTags: string[] = [];
+        let aiSummary: string | null = null;
+        let catSource: string | null = null;
+        let catRuleId: string | null = null;
+        try {
+          const cat = await categorizeEmail({
+            from_addr: m.fromAddr,
+            subject: m.subject,
+            body_text: bodyText,
+          });
+          primaryTag = cat.primary_tag;
+          secondaryTags = cat.secondary_tags;
+          aiSummary = cat.ai_summary || null;
+          catSource = cat.source;
+          catRuleId = cat.rule_id || null;
+        } catch (catErr) {
+          errors.push(`categorize uid=${m.uid}: ${String(catErr)}`);
+        }
+
         const { data: inserted, error: insertErr } = await supabaseAdmin
           .from("emails")
           .insert({
@@ -195,8 +219,9 @@ export async function processAnjeykaEmails(
             body_html: bodyHtml,
             received_at: m.receivedAt,
             read: false,
-            primary_tag: null,
-            secondary_tags: [],
+            primary_tag: primaryTag,
+            secondary_tags: secondaryTags,
+            ai_summary: aiSummary,
             property_id: null,
             thread_id: m.messageId,
             raw_uid: rawUid,
@@ -209,6 +234,23 @@ export async function processAnjeykaEmails(
           const message = insertErr?.message || "unknown insert failure";
           errors.push(`insert uid=${m.uid}: [${code}] ${message}`);
           continue;
+        }
+
+        // Audit row — captures every categorization decision so we can
+        // tune rules + prompt later. Failure here doesn't fail ingest.
+        if (primaryTag && catSource) {
+          try {
+            await supabaseAdmin.from("categorization_log").insert({
+              email_id: inserted.id,
+              primary_tag: primaryTag,
+              secondary_tags: secondaryTags,
+              source: catSource,
+              rule_id: catRuleId,
+              ai_summary: aiSummary,
+            });
+          } catch (logErr) {
+            errors.push(`cat_log uid=${m.uid}: ${String(logErr)}`);
+          }
         }
 
         stored++;

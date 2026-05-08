@@ -156,6 +156,7 @@ export type Email = {
   read: boolean;
   primary_tag: string | null;
   secondary_tags: string[];
+  ai_summary: string | null;
   property_id: string | null;
   thread_id: string | null;
   raw_uid: string | null;
