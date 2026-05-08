@@ -39,7 +39,8 @@ DECLARE
     'seasonal_rules',
     'price_recommendations',
     'property_workflows',
-    'workflow_runs'
+    'workflow_runs',
+    'keepalive_log'
   ];
 BEGIN
   FOREACH tbl IN ARRAY table_list LOOP
@@ -82,7 +83,7 @@ BEGIN
         'calendar_feeds','messages','message_threads','vendors','tasks',
         'emails','user_settings','booking_history','competitor_listings',
         'seasonal_rules','price_recommendations','property_workflows',
-        'workflow_runs'
+        'workflow_runs','keepalive_log'
       )
   LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tbl);

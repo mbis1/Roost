@@ -1,1 +1,8 @@
-{}
+{
+  "crons": [
+    {
+      "path": "/api/keepalive?source=vercel-cron",
+      "schedule": "0 12 * * *"
+    }
+  ]
+}
