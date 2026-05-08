@@ -16,6 +16,7 @@ import { PRIMARY_TAGS } from "@/lib/categorize-tags";
 /* ------------------------------------------------------------------ */
 
 type ChipKey =
+  | "all"
   | "all_non_personal"
   | "guest_message"
   | "booking"
@@ -41,7 +42,8 @@ type ChipDef = {
 };
 
 const PRIMARY_CHIPS: ChipDef[] = [
-  { key: "all_non_personal", label: "All — non-personal" },
+  { key: "all_non_personal", label: "Primary" },
+  { key: "all", label: "All inbox" },
   { key: "guest_message", label: "Guest messages" },
   { key: "booking", label: "Bookings" },
   { key: "payout", label: "Payouts" },
@@ -100,7 +102,9 @@ export function InboxTab() {
     const q = query.trim().toLowerCase();
     return emails.filter((e) => {
       // Chip filter
-      if (chip === "all_non_personal") {
+      if (chip === "all") {
+        // pass — every email is included
+      } else if (chip === "all_non_personal") {
         if (e.primary_tag === "personal" || e.primary_tag === "spam")
           return false;
       } else if (chip === "untagged") {
