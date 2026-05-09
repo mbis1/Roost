@@ -35,7 +35,7 @@ import {
   PriceEditModal,
   type PriceEditScope,
 } from "@/components/calendar/PriceEditModal";
-import { CalendarSettingsPanel } from "@/components/calendar/CalendarSettingsPanel";
+import { CalendarSidebar } from "@/components/calendar/CalendarSidebar";
 
 type CalendarApiResponse = {
   property: { id: string; name: string; nickname: string | null };
@@ -237,21 +237,25 @@ export function PropertyCalendarView({
     }
   };
 
+  // Count of pricing overrides that fall on visible in-month days.
+  const overrideCount = visibleInMonth.filter(
+    (c) => getOverrideForDate(c.iso, overrides) !== null
+  ).length;
+
   return (
-    <div className="max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="bg-white/70 backdrop-blur-xl border border-surface-muted rounded-2xl p-4 mb-3">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
+    <div className="max-w-6xl mx-auto flex gap-4 items-start">
+      {/* Left column: month grid + light header strip */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
           <div className="flex items-center gap-2 min-w-0">
-            <Icon name="calendar_month" className="text-2xl text-brand" />
-            <h1 className="text-xl font-extrabold">
-              {monthLabel}{" "}
+            <h1 className="text-2xl font-extrabold">
+              {monthLabel}
               <span className="text-sm font-medium text-txt-secondary ml-2">
                 · {propertyName}
               </span>
             </h1>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1">
             <button
               onClick={() => setAnchor((a) => addMonths(a, -1))}
               className="p-2 rounded-lg hover:bg-surface-soft cursor-pointer"
@@ -278,35 +282,22 @@ export function PropertyCalendarView({
                 className="text-lg text-txt-secondary"
               />
             </button>
-            <Button variant="ghost" size="sm" onClick={onSyncFeeds}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onSyncFeeds}
+              className="ml-1"
+            >
               <span className="inline-flex items-center gap-1.5">
                 <Icon name="sync" className="text-sm" />
-                {syncing ? "Syncing…" : "Sync feeds"}
+                {syncing ? "Syncing…" : "Sync"}
               </span>
             </Button>
           </div>
         </div>
 
-        {/* Month stats */}
-        <div className="flex items-center gap-5 mt-3 text-xs text-txt-secondary flex-wrap">
-          <span>
-            <strong className="text-txt">{occupancyPct}%</strong> occupancy
-          </span>
-          <span>
-            <strong className="text-txt">
-              ${Math.round(projectedRevenue).toLocaleString()}
-            </strong>{" "}
-            projected revenue
-          </span>
-          {baseRate != null && (
-            <span>
-              base ${Math.round(baseRate)}/night
-            </span>
-          )}
-        </div>
-
         {(error || syncReport) && (
-          <div className="mt-3 text-xs">
+          <div className="mb-3 text-xs">
             {error && (
               <div className="rounded-lg border border-status-red/30 bg-status-red-bg/50 px-3 py-2 text-status-red font-semibold">
                 ⚠ {error}
@@ -319,44 +310,49 @@ export function PropertyCalendarView({
             )}
           </div>
         )}
+
+        {/* Month grid */}
+        <div className="bg-white/70 backdrop-blur-xl border border-surface-muted rounded-2xl overflow-hidden">
+          <div className="grid grid-cols-7 border-b border-surface-muted">
+            {DAYS_OF_WEEK.map((d) => (
+              <div
+                key={d}
+                className="text-center text-[10px] font-bold uppercase tracking-wide text-txt-secondary py-2"
+              >
+                {d}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7">
+            {cells.map((c) => (
+              <DayCell
+                key={c.iso}
+                cell={c}
+                today={today}
+                baseRate={baseRate}
+                bookings={bookings}
+                overrides={overrides}
+                onClick={() => onCellClick(c.iso)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {loading && (
+          <p className="text-xs text-txt-tertiary mt-2">Loading…</p>
+        )}
       </div>
 
-      {/* Sync settings panel — collapsible feed manager */}
-      <CalendarSettingsPanel
+      {/* Right column: persistent settings sidebar */}
+      <CalendarSidebar
         propertyId={propertyId}
+        occupancyPct={occupancyPct}
+        projectedRevenue={projectedRevenue}
+        bookingsCount={bookings.length}
+        baseRate={baseRate}
+        overrideCount={overrideCount}
         onSyncDone={fetchData}
       />
-
-      {/* Month grid */}
-      <div className="bg-white/70 backdrop-blur-xl border border-surface-muted rounded-2xl overflow-hidden">
-        <div className="grid grid-cols-7 border-b border-surface-muted">
-          {DAYS_OF_WEEK.map((d) => (
-            <div
-              key={d}
-              className="text-center text-[10px] font-bold uppercase tracking-wide text-txt-secondary py-2"
-            >
-              {d}
-            </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7">
-          {cells.map((c) => (
-            <DayCell
-              key={c.iso}
-              cell={c}
-              today={today}
-              baseRate={baseRate}
-              bookings={bookings}
-              overrides={overrides}
-              onClick={() => onCellClick(c.iso)}
-            />
-          ))}
-        </div>
-      </div>
-
-      {loading && (
-        <p className="text-xs text-txt-tertiary mt-2">Loading…</p>
-      )}
 
       {/* Modals / drawers */}
       {openBooking && (
