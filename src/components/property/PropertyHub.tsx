@@ -13,6 +13,7 @@ import { PricingRulesCard } from "@/components/property/cards/PricingRulesCard";
 import { NotesCard } from "@/components/property/cards/NotesCard";
 import { ArrivalFlowCard } from "@/components/property/cards/ArrivalFlowCard";
 import { DepartureFlowCard } from "@/components/property/cards/DepartureFlowCard";
+import { ListingsAndCalendarSyncCard } from "@/components/property/cards/ListingsAndCalendarSyncCard";
 
 type SubTab = "operations" | "business";
 
@@ -171,6 +172,7 @@ export function PropertyHub({ propertyId }: { propertyId: string }) {
 
         {tab === "business" && (
           <>
+            <ListingsAndCalendarSyncCard propertyId={propertyId} />
             <ListingsCard data={bySection["listings"]} onSave={save} />
             <PricingRulesCard data={bySection["pricing_rules"]} onSave={save} />
             <NotesCard

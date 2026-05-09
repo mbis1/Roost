@@ -182,6 +182,45 @@ export type UserSettings = {
   telegram_chat_id: string;
 };
 
+export type IcalFeed = {
+  platform: string;
+  url: string;
+  last_synced_at?: string | null;
+};
+
+export type Booking = {
+  id: string;
+  property_id: string;
+  ical_uid: string;
+  source: string;
+  status: "confirmed" | "blocked" | "cancelled";
+  checkin_date: string;
+  checkout_date: string;
+  summary: string | null;
+  guest_name: string | null;
+  guest_phone: string | null;
+  guest_email: string | null;
+  total_paid: number | null;
+  host_payout: number | null;
+  cleaning_fee: number | null;
+  guests_count: number | null;
+  platform_booking_id: string | null;
+  current_workflow_step: string | null;
+  source_email_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PricingOverride = {
+  id: string;
+  property_id: string;
+  date: string;
+  price: number;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type WorkflowRun = {
   id: string;
   property_id: string;
