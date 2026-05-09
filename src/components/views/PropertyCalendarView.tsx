@@ -196,9 +196,9 @@ export function PropertyCalendarView({
   };
 
   return (
-    <div className="max-w-5xl">
+    <div className="max-w-5xl mx-auto">
       {/* Header */}
-      <div className="bg-white/70 backdrop-blur-xl border border-surface-muted rounded-2xl p-5 mb-4">
+      <div className="bg-white/70 backdrop-blur-xl border border-surface-muted rounded-2xl p-4 mb-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 min-w-0">
             <Icon name="calendar_month" className="text-2xl text-brand" />
@@ -356,7 +356,7 @@ function DayCell({
       type="button"
       onClick={onClick}
       className={clsx(
-        "h-24 border-r border-b border-surface-muted text-left relative overflow-hidden cursor-pointer transition-colors",
+        "h-16 border-r border-b border-surface-muted text-left relative overflow-hidden cursor-pointer transition-colors",
         !cell.inMonth && "bg-surface-soft/40 opacity-50",
         cell.inMonth && !b && "hover:bg-surface-soft",
         isPast && cell.inMonth && !b && "opacity-65"
