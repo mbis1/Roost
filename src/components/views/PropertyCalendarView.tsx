@@ -35,6 +35,7 @@ import {
   PriceEditModal,
   type PriceEditScope,
 } from "@/components/calendar/PriceEditModal";
+import { CalendarSettingsPanel } from "@/components/calendar/CalendarSettingsPanel";
 
 type CalendarApiResponse = {
   property: { id: string; name: string; nickname: string | null };
@@ -183,13 +184,54 @@ export function PropertyCalendarView({
     await fetchData();
   };
 
+  const [syncReport, setSyncReport] = useState<string | null>(null);
+
   const onSyncFeeds = async () => {
     setSyncing(true);
+    setSyncReport(null);
+    setError(null);
     try {
-      await fetch(`/api/ical-sync?property_id=${propertyId}`, {
+      const r = await fetch(`/api/ical-sync?property_id=${propertyId}`, {
         method: "POST",
       });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        setError(j.error || `Sync failed (${r.status})`);
+      } else {
+        const results = (j.results || []) as Array<{
+          platform: string;
+          fetched: number;
+          upserted: number;
+          errors: string[];
+        }>;
+        if (results.length === 0) {
+          setError(
+            "No feeds configured. Open Sync settings below to add one."
+          );
+        } else {
+          const errs = results.flatMap((r) => r.errors);
+          if (errs.length > 0) {
+            setError(`Sync had errors: ${errs.join("; ")}`);
+          } else {
+            const totalUpserted = results.reduce(
+              (s, r) => s + r.upserted,
+              0
+            );
+            const totalFetched = results.reduce(
+              (s, r) => s + r.fetched,
+              0
+            );
+            setSyncReport(
+              `Synced ${results.length} feed${
+                results.length === 1 ? "" : "s"
+              } — ${totalUpserted}/${totalFetched} bookings.`
+            );
+          }
+        }
+      }
       await fetchData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSyncing(false);
     }
@@ -246,7 +288,7 @@ export function PropertyCalendarView({
         </div>
 
         {/* Month stats */}
-        <div className="flex items-center gap-5 mt-3 text-xs text-txt-secondary">
+        <div className="flex items-center gap-5 mt-3 text-xs text-txt-secondary flex-wrap">
           <span>
             <strong className="text-txt">{occupancyPct}%</strong> occupancy
           </span>
@@ -261,11 +303,29 @@ export function PropertyCalendarView({
               base ${Math.round(baseRate)}/night
             </span>
           )}
-          {error && (
-            <span className="text-status-red">⚠ {error}</span>
-          )}
         </div>
+
+        {(error || syncReport) && (
+          <div className="mt-3 text-xs">
+            {error && (
+              <div className="rounded-lg border border-status-red/30 bg-status-red-bg/50 px-3 py-2 text-status-red font-semibold">
+                ⚠ {error}
+              </div>
+            )}
+            {syncReport && !error && (
+              <div className="rounded-lg border border-status-green/30 bg-status-green-bg/50 px-3 py-2 text-status-green font-semibold">
+                ✓ {syncReport}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Sync settings panel — collapsible feed manager */}
+      <CalendarSettingsPanel
+        propertyId={propertyId}
+        onSyncDone={fetchData}
+      />
 
       {/* Month grid */}
       <div className="bg-white/70 backdrop-blur-xl border border-surface-muted rounded-2xl overflow-hidden">
