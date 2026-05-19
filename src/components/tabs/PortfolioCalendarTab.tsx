@@ -10,15 +10,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { useProperties } from "@/lib/hooks";
 import { Icon } from "@/components/Icon";
 import type { Booking } from "@/lib/supabase";
-import {
-  addDaysIso,
-  isoFromDate,
-  todayIso,
-} from "@/lib/calendar-utils";
+import { addDaysIso, todayIso } from "@/lib/calendar-utils";
 import { BookingDrawer } from "@/components/calendar/BookingDrawer";
 
 type PropertyTimeline = {
@@ -32,6 +29,7 @@ const DEFAULT_RANGE_DAYS = 21;
 const DAY_COLUMN_WIDTH = 36; // px per day
 
 export function PortfolioCalendarTab() {
+  const router = useRouter();
   const { data: properties, loading } = useProperties();
   const [windowStart, setWindowStart] = useState<string>(() => todayIso());
   const [rangeDays] = useState<number>(DEFAULT_RANGE_DAYS);
@@ -223,6 +221,9 @@ export function PortfolioCalendarTab() {
                     striped={rowIdx % 2 === 1}
                     bookings={timeline?.bookings || []}
                     rowLoading={timeline?.loading ?? false}
+                    onPropertyClick={() =>
+                      router.push(`/property/${p.id}?tab=calendar`)
+                    }
                     onBookingClick={(b) => {
                       setOpenBooking(b);
                       setOpenBookingPropertyName(p.nickname || p.name);
@@ -280,6 +281,7 @@ function PropertyTimelineRow({
   striped,
   bookings,
   rowLoading,
+  onPropertyClick,
   onBookingClick,
 }: {
   property: {
@@ -293,6 +295,7 @@ function PropertyTimelineRow({
   striped: boolean;
   bookings: Booking[];
   rowLoading: boolean;
+  onPropertyClick: () => void;
   onBookingClick: (b: Booking) => void;
 }) {
   // Figure out booking spans that overlap the visible window so we can
@@ -347,25 +350,34 @@ function PropertyTimelineRow({
 
   return (
     <>
-      <div
+      <button
+        type="button"
+        onClick={onPropertyClick}
         className={clsx(
-          "border-b border-r border-surface-muted py-2 px-3 sticky left-0 z-10 flex items-center gap-2 min-w-0",
-          striped ? "bg-surface-soft/40" : "bg-white"
+          "border-b border-r border-surface-muted py-2 px-3 sticky left-0 z-10 flex items-center gap-2 min-w-0 cursor-pointer transition-colors text-left w-full",
+          striped ? "bg-surface-soft/40" : "bg-white",
+          "hover:bg-brand/5 group"
         )}
+        title="Open this property's Calendar tab"
       >
         <div className="w-6 h-6 rounded bg-gradient-to-br from-brand to-brand-dark text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">
           {(property.nickname || property.name).charAt(0).toUpperCase()}
         </div>
-        <span className="text-xs font-semibold truncate">
+        <span className="text-xs font-semibold truncate group-hover:text-brand transition-colors">
           {property.nickname || property.name}
         </span>
-        {rowLoading && (
+        {rowLoading ? (
           <Icon
             name="more_horiz"
-            className="text-xs text-txt-tertiary ml-auto"
+            className="text-xs text-txt-tertiary ml-auto flex-shrink-0"
+          />
+        ) : (
+          <Icon
+            name="chevron_right"
+            className="text-sm text-txt-tertiary ml-auto flex-shrink-0 opacity-0 group-hover:opacity-100 group-hover:text-brand transition-opacity"
           />
         )}
-      </div>
+      </button>
 
       {/* Day cells (background grid). The bookings render absolutely
           positioned over the row container so they span multiple columns

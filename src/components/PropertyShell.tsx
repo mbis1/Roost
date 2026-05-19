@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { useProperties } from "@/lib/hooks";
 import { StatusBadge } from "@/components/ui";
@@ -27,10 +27,31 @@ const PROPERTY_TABS = [
 
 export function PropertyShell({ propertyId }: { propertyId: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: properties } = useProperties();
   const { data: property } = useProperty(propertyId);
-  const [activeTab, setActiveTab] = useState("overview");
+
+  // Deep-link support: if the URL carries ?tab=<id> and it matches a known
+  // tab, open that one on first render. Lets the portfolio timeline link
+  // straight into a property's Calendar tab (or any other tab) without a
+  // second click. We don't read it on every render — just the first time.
+  const initialTab = (() => {
+    const fromUrl = searchParams.get("tab");
+    if (fromUrl && PROPERTY_TABS.some((t) => t.id === fromUrl)) return fromUrl;
+    return "overview";
+  })();
+
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [showAddModal, setShowAddModal] = useState(false);
+
+  // If the URL changes (e.g. user clicks a different property row in the
+  // portfolio with ?tab=calendar), sync activeTab to the new param value.
+  useEffect(() => {
+    const fromUrl = searchParams.get("tab");
+    if (fromUrl && PROPERTY_TABS.some((t) => t.id === fromUrl)) {
+      setActiveTab(fromUrl);
+    }
+  }, [searchParams]);
 
   return (
     <div className="h-screen flex flex-col font-sans bg-surface-soft text-txt">
