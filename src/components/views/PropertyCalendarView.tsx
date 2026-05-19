@@ -69,8 +69,12 @@ export function PropertyCalendarView({
     setLoading(true);
     setError(null);
     try {
+      // Cache-bust with a fresh timestamp on every fetch. Vercel CDN can
+      // hold onto a pre-sync empty response for the same URL otherwise,
+      // even when the route sends no-store headers. A unique URL per fetch
+      // sidesteps that entirely.
       const r = await fetch(
-        `/api/property/${propertyId}/calendar?start=${rangeStart}&end=${rangeEnd}`,
+        `/api/property/${propertyId}/calendar?start=${rangeStart}&end=${rangeEnd}&_t=${Date.now()}`,
         { cache: "no-store" }
       );
       const j = await r.json();
