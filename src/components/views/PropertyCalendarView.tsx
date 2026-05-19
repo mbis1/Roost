@@ -70,7 +70,8 @@ export function PropertyCalendarView({
     setError(null);
     try {
       const r = await fetch(
-        `/api/property/${propertyId}/calendar?start=${rangeStart}&end=${rangeEnd}`
+        `/api/property/${propertyId}/calendar?start=${rangeStart}&end=${rangeEnd}`,
+        { cache: "no-store" }
       );
       const j = await r.json();
       if (!r.ok) {
