@@ -77,11 +77,24 @@ export async function GET(
     .gte("date", startDate)
     .lte("date", endDate);
 
-  return NextResponse.json({
-    property: prop,
-    base_rate: baseRate,
-    bookings: bookings || [],
-    pricing_overrides: overrides || [],
-    range: { start: startDate, end: endDate },
-  });
+  return NextResponse.json(
+    {
+      property: prop,
+      base_rate: baseRate,
+      bookings: bookings || [],
+      pricing_overrides: overrides || [],
+      range: { start: startDate, end: endDate },
+    },
+    {
+      // Belt-and-suspenders: tell every cache layer (browser, Vercel CDN,
+      // anything in between) not to keep this response. dynamic: force-
+      // dynamic prevents Next.js's own static caching; this header
+      // handles the browser + CDN edge.
+      headers: {
+        "Cache-Control": "no-store, must-revalidate",
+        "CDN-Cache-Control": "no-store",
+        "Vercel-CDN-Cache-Control": "no-store",
+      },
+    }
+  );
 }
