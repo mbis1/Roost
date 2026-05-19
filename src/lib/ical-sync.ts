@@ -9,12 +9,11 @@
 // stored as-is and the calendar UI handles the "occupied < checkout"
 // rendering.
 //
-// Server-only (uses supabaseAdmin + node-ical).
-//
-// node-ical is dynamic-imported inside the sync functions because it
-// triggers a TypeError ("o.BigInt is not a function") when Next.js does
-// its build-time module evaluation pass. Deferring the import to call
-// time avoids that — the module only loads when a sync actually runs.
+// Previously this used node-ical, which kept blowing up at runtime with
+// "TypeError: o.BigInt is not a function" — its rrule dependency couldn't
+// survive Vercel's bundling. Airbnb / VRBO / Booking iCal exports have
+// none of the features that justify a heavyweight parser (no recurrence,
+// no timezones, no alarms), so we parse them ourselves.
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { IcalFeed } from "@/lib/supabase";
@@ -28,6 +27,125 @@ export type SyncResult = {
   skipped: number;
   errors: string[];
 };
+
+type VEvent = {
+  uid: string;
+  summary: string;
+  start: string; // YYYY-MM-DD
+  end: string; // YYYY-MM-DD
+};
+
+/* ------------------------------------------------------------------ */
+/* Tiny iCal parser                                                   */
+/* ------------------------------------------------------------------ */
+
+/** RFC 5545 line unfolding: CRLF followed by space/tab continues the prior
+ *  line. Most short-term-rental platforms don't fold, but it's cheap to
+ *  handle correctly. */
+function unfoldLines(text: string): string[] {
+  const raw = text.split(/\r?\n/);
+  const out: string[] = [];
+  for (const line of raw) {
+    if ((line.startsWith(" ") || line.startsWith("\t")) && out.length > 0) {
+      out[out.length - 1] += line.substring(1);
+    } else {
+      out.push(line);
+    }
+  }
+  return out;
+}
+
+/** Parse `KEY[;PARAM=VAL;…]:VALUE` into its three pieces. Params dropped
+ *  for our use case; we only need the key + value. */
+function splitKeyValue(line: string): { key: string; value: string } {
+  const colonIdx = line.indexOf(":");
+  if (colonIdx < 0) return { key: "", value: "" };
+  const left = line.substring(0, colonIdx);
+  const value = line.substring(colonIdx + 1);
+  const semi = left.indexOf(";");
+  const key = semi < 0 ? left : left.substring(0, semi);
+  return { key: key.toUpperCase(), value };
+}
+
+/** Accept YYYYMMDD (all-day) or YYYYMMDDTHHMMSS[Z]; return YYYY-MM-DD or
+ *  null if unparseable. */
+function parseIcsDate(value: string): string | null {
+  const m = value.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (!m) return null;
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+function unescapeIcsText(s: string): string {
+  return s
+    .replace(/\\n/gi, "\n")
+    .replace(/\\,/g, ",")
+    .replace(/\\;/g, ";")
+    .replace(/\\\\/g, "\\");
+}
+
+export async function parseIcsFeed(url: string): Promise<VEvent[]> {
+  const res = await fetch(url, {
+    // Some hosts gate on User-Agent; Airbnb's iCal endpoint is happy with
+    // any UA but spell something out anyway.
+    headers: { "User-Agent": "Roost/1.0 (calendar sync)" },
+    // Don't cache the iCal body — we want fresh data every sync.
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  }
+  const text = await res.text();
+
+  const events: VEvent[] = [];
+  const lines = unfoldLines(text);
+  let inEvent = false;
+  let current: Partial<VEvent> = {};
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === "BEGIN:VEVENT") {
+      inEvent = true;
+      current = {};
+      continue;
+    }
+    if (trimmed === "END:VEVENT") {
+      inEvent = false;
+      if (current.uid && current.start && current.end) {
+        events.push({
+          uid: current.uid,
+          summary: current.summary || "",
+          start: current.start,
+          end: current.end,
+        });
+      }
+      current = {};
+      continue;
+    }
+    if (!inEvent) continue;
+
+    const { key, value } = splitKeyValue(line);
+    switch (key) {
+      case "UID":
+        current.uid = value;
+        break;
+      case "SUMMARY":
+        current.summary = unescapeIcsText(value);
+        break;
+      case "DTSTART":
+        current.start = parseIcsDate(value) || undefined;
+        break;
+      case "DTEND":
+        current.end = parseIcsDate(value) || undefined;
+        break;
+    }
+  }
+
+  return events;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sync orchestration                                                 */
+/* ------------------------------------------------------------------ */
 
 /** Fetch + parse a single iCal feed; upsert bookings; stamp last_synced_at. */
 export async function syncIcalFeed(
@@ -44,33 +162,15 @@ export async function syncIcalFeed(
     errors: [],
   };
 
-  let events: Record<string, unknown>;
+  let events: VEvent[];
   try {
-    // Lazy-import to avoid build-time eval blowup on node-ical.
-    const icalMod = (await import("node-ical")) as {
-      async: { fromURL: (url: string) => Promise<Record<string, unknown>> };
-      default?: {
-        async: {
-          fromURL: (url: string) => Promise<Record<string, unknown>>;
-        };
-      };
-    };
-    const ical = icalMod.default || icalMod;
-    events = await ical.async.fromURL(feed.url);
+    events = await parseIcsFeed(feed.url);
   } catch (err) {
     result.errors.push(`fetch failed: ${String(err)}`);
     return result;
   }
 
-  for (const key of Object.keys(events)) {
-    const ev = events[key] as {
-      type?: string;
-      uid?: string;
-      summary?: string;
-      start?: Date;
-      end?: Date;
-    };
-    if (!ev || ev.type !== "VEVENT") continue;
+  for (const ev of events) {
     result.fetched++;
 
     if (!ev.uid) {
@@ -84,7 +184,7 @@ export async function syncIcalFeed(
       continue;
     }
 
-    const summaryRaw = (ev.summary || "").toString();
+    const summaryRaw = ev.summary;
     const summaryLower = summaryRaw.toLowerCase();
     const isBlocked =
       summaryLower.includes("not available") ||
@@ -92,17 +192,14 @@ export async function syncIcalFeed(
       summaryLower === "airbnb (not available)";
     const status = isBlocked ? "blocked" : "confirmed";
 
-    const checkinDate = formatDate(ev.start);
-    const checkoutDate = formatDate(ev.end);
-
     const { error } = await supabaseAdmin.from("bookings").upsert(
       {
         property_id: propertyId,
         ical_uid: ev.uid,
         source: feed.platform,
         status,
-        checkin_date: checkinDate,
-        checkout_date: checkoutDate,
+        checkin_date: ev.start,
+        checkout_date: ev.end,
         summary: summaryRaw || null,
         updated_at: new Date().toISOString(),
       },
@@ -157,11 +254,4 @@ export async function syncAllFeeds(): Promise<SyncResult[]> {
     }
   }
   return results;
-}
-
-function formatDate(d: Date): string {
-  const year = d.getUTCFullYear();
-  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
