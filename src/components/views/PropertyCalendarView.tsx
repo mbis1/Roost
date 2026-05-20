@@ -195,6 +195,9 @@ export function PropertyCalendarView({
     setSyncing(true);
     setSyncReport(null);
     setError(null);
+    // Blow away any locally-cached state before sync so the post-sync
+    // refetch can't show a stale empty result.
+    setData(null);
     try {
       const r = await fetch(`/api/ical-sync?property_id=${propertyId}`, {
         method: "POST",
