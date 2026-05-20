@@ -33,17 +33,33 @@ export function TextArea({ value, onChange, rows = 3, placeholder }: { value: st
     className="w-full px-3 py-2.5 bg-surface-soft border border-surface-muted rounded-lg text-sm text-txt outline-none focus:border-brand resize-y" />;
 }
 
-export function Button({ children, onClick, variant = "primary", size = "md", className }: {
-  children: ReactNode; onClick?: () => void; variant?: "primary" | "danger" | "ghost"; size?: "sm" | "md"; className?: string;
+export function Button({ children, onClick, variant = "primary", size = "md", className, disabled, type }: {
+  children: ReactNode;
+  onClick?: () => void;
+  variant?: "primary" | "danger" | "ghost";
+  size?: "sm" | "md";
+  className?: string;
+  disabled?: boolean;
+  type?: "button" | "submit" | "reset";
 }) {
-  const base = "font-semibold rounded-lg cursor-pointer transition-colors";
+  const base = "font-semibold rounded-lg transition-colors";
   const sizes = { sm: "px-3 py-1.5 text-xs", md: "px-4 py-2 text-sm" };
   const variants = {
     primary: "bg-brand text-white hover:bg-brand-dark",
     danger: "bg-status-red-bg text-status-red hover:bg-red-100",
     ghost: "bg-transparent border border-surface-muted text-txt-secondary hover:border-txt-secondary",
   };
-  return <button onClick={onClick} className={clsx(base, sizes[size], variants[variant], className)}>{children}</button>;
+  const stateCls = disabled ? "opacity-55 cursor-not-allowed" : "cursor-pointer";
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      type={type ?? "button"}
+      className={clsx(base, sizes[size], variants[variant], stateCls, className)}
+    >
+      {children}
+    </button>
+  );
 }
 
 export function Badge({ children, color = "blue" }: { children: ReactNode; color?: "blue" | "green" | "red" | "orange" | "gray" }) {

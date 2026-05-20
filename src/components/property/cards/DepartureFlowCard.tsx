@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { PropertyCard, cardStatus } from "@/components/property/PropertyCard";
-import { Input, FormField } from "@/components/ui";
+import { FormField } from "@/components/ui";
 import {
   EditableSection,
   KVSelect,
@@ -23,9 +24,14 @@ type DepartureData = {
   checkout_reminder_enabled: boolean;
   checkout_reminder_template: string;
   cleaner_notify_enabled: boolean;
-  cleaner_contact: string;
-  cleaner_lead_time: "24" | "48" | "72";
+  /** Sprint F — selected vendor id (replaces free-text cleaner_contact). */
+  cleaner_vendor_id: string;
+  /** Sprint F — lead time in hours (replaces the old "24"|"48"|"72" string). */
+  cleaner_lead_time_hours: number;
   cleaner_message_template: string;
+  // Legacy fields preserved on read for back-compat; not edited via the form.
+  cleaner_contact?: string;
+  cleaner_lead_time?: string;
 };
 
 const DEFAULT_CHECKOUT_INSTRUCTIONS =
@@ -36,7 +42,7 @@ const DEFAULT_CHECKOUT_INSTRUCTIONS =
 
 const DEFAULT_CHECKOUT_REMINDER =
   `Hi {{guest_name}}, just a friendly reminder — checkout is by {{checkout_time}} today. ` +
-  `{{checkout_instructions_short}}`;
+  `{{checkout_instructions}}`;
 
 const DEFAULT_CLEANER_MESSAGE =
   `Hi {{cleaner_name}}, heads up: checkout at {{property_nickname}} on {{checkout_date}} at {{checkout_time}}. ` +
@@ -48,19 +54,26 @@ const DEFAULT: DepartureData = {
   checkout_reminder_enabled: true,
   checkout_reminder_template: DEFAULT_CHECKOUT_REMINDER,
   cleaner_notify_enabled: true,
-  cleaner_contact: "",
-  cleaner_lead_time: "48",
+  cleaner_vendor_id: "",
+  cleaner_lead_time_hours: 24 * 28, // 4 weeks default per Sprint F
   cleaner_message_template: DEFAULT_CLEANER_MESSAGE,
 };
 
 const LEAD_TIME_OPTIONS = [
   { value: "24", label: "24 hours before checkout" },
   { value: "48", label: "48 hours before checkout" },
-  { value: "72", label: "72 hours before checkout" },
+  { value: "72", label: "3 days before checkout" },
+  { value: "168", label: "1 week before checkout" },
+  { value: "336", label: "2 weeks before checkout" },
+  { value: "672", label: "4 weeks before checkout" },
 ];
 
-function leadTimeShort(v: string): string {
-  return `${v}h before`;
+function leadTimeShort(hours: number): string {
+  if (hours <= 72) return `${hours}h before`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d before`;
+  const weeks = Math.round(days / 7);
+  return `${weeks}w before`;
 }
 
 function snippet(s: string, n = 100): string {
@@ -72,19 +85,94 @@ function hasDataFor(raw: Record<string, unknown> | undefined): boolean {
   return !!raw && Object.keys(raw).length > 0;
 }
 
+/** Migrate older saved shapes into the Sprint F shape. */
+function normalize(raw: Record<string, unknown> | undefined): DepartureData {
+  const data = (raw || {}) as Partial<DepartureData> & Record<string, unknown>;
+  const leadHours = (() => {
+    if (typeof data.cleaner_lead_time_hours === "number")
+      return data.cleaner_lead_time_hours;
+    if (typeof data.cleaner_lead_time === "string") {
+      const n = parseInt(data.cleaner_lead_time, 10);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return DEFAULT.cleaner_lead_time_hours;
+  })();
+  return {
+    ...DEFAULT,
+    ...data,
+    cleaner_lead_time_hours: leadHours,
+    cleaner_vendor_id:
+      (data.cleaner_vendor_id as string) ||
+      // If only legacy text contact exists, leave vendor_id empty —
+      // user will pick from the dropdown.
+      "",
+  };
+}
+
+/* ------------------ Vendor dropdown hook ------------------ */
+
+type CleanerOption = { value: string; label: string; phone?: string | null };
+
+function useCleanerOptions(propertyId: string | null | undefined): {
+  loading: boolean;
+  options: CleanerOption[];
+  refetch: () => Promise<void>;
+} {
+  const [loading, setLoading] = useState(true);
+  const [options, setOptions] = useState<CleanerOption[]>([]);
+
+  const refetch = async () => {
+    if (!propertyId) {
+      setOptions([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const r = await fetch(
+        `/api/vendors?property_id=${encodeURIComponent(propertyId)}&role=cleaner`,
+        { cache: "no-store" }
+      );
+      const j = await r.json();
+      if (r.ok && Array.isArray(j.vendors)) {
+        setOptions(
+          j.vendors.map((v: { id: string; name: string; phone: string | null }) => ({
+            value: v.id,
+            label: v.name,
+            phone: v.phone,
+          }))
+        );
+      } else {
+        setOptions([]);
+      }
+    } catch {
+      setOptions([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId]);
+
+  return { loading, options, refetch };
+}
+
 /* ------------------ Component ------------------ */
 
 export function DepartureFlowCard({
   data,
   onSave,
+  propertyId,
 }: {
   data: Record<string, unknown> | undefined;
   onSave: (section: string, data: Record<string, unknown>) => Promise<void>;
+  /** Sprint F — needed to load this property's cleaners. */
+  propertyId?: string;
 }) {
-  const saved: DepartureData = {
-    ...DEFAULT,
-    ...((data as DepartureData) || {}),
-  };
+  const saved = normalize(data);
   const hasData = hasDataFor(data);
 
   const { form, setField, editing, saving, startEdit, save, cancel } =
@@ -92,12 +180,19 @@ export function DepartureFlowCard({
       await onSave("departure_flow", f as unknown as Record<string, unknown>);
     });
 
+  const { options: cleaners, loading: loadingCleaners } = useCleanerOptions(
+    propertyId
+  );
+
+  const selectedCleaner =
+    cleaners.find((c) => c.value === form.cleaner_vendor_id) || null;
+
   const filled = [
     form.checkout_time,
     form.checkout_instructions,
     form.checkout_reminder_enabled ? "y" : "",
     form.cleaner_notify_enabled ? "y" : "",
-    form.cleaner_contact,
+    form.cleaner_vendor_id || saved.cleaner_contact || "",
   ].filter(Boolean).length;
   const status = cardStatus(hasData ? filled : 0, 5);
 
@@ -137,13 +232,17 @@ export function DepartureFlowCard({
       {form.cleaner_notify_enabled && (
         <>
           <ReadRow
-            label="Cleaner contact"
-            value={form.cleaner_contact || "—"}
-            muted={!form.cleaner_contact}
+            label="Cleaner"
+            value={
+              selectedCleaner
+                ? selectedCleaner.label
+                : saved.cleaner_contact || "— not set —"
+            }
+            muted={!selectedCleaner && !saved.cleaner_contact}
           />
           <ReadRow
             label="Lead time"
-            value={leadTimeShort(form.cleaner_lead_time)}
+            value={leadTimeShort(form.cleaner_lead_time_hours)}
           />
           <ReadRow
             label="Cleaner message"
@@ -159,6 +258,11 @@ export function DepartureFlowCard({
   );
 
   /* --------- Edit view --------- */
+  const cleanerSelectOptions = [
+    { value: "", label: "— not set —" },
+    ...cleaners.map((c) => ({ value: c.value, label: c.label })),
+  ];
+
   const editView = (
     <div className="space-y-4">
       <FormField label="Check-out Time">
@@ -207,21 +311,41 @@ export function DepartureFlowCard({
 
       {form.cleaner_notify_enabled && (
         <>
-          <FormField label="Cleaner Contact">
-            <Input
-              value={form.cleaner_contact}
-              onChange={(v) => setField("cleaner_contact", v)}
-              placeholder="Maria 555-1234"
+          <FormField label="Cleaner">
+            <KVSelect
+              value={form.cleaner_vendor_id}
+              onChange={(v) => setField("cleaner_vendor_id", v)}
+              options={cleanerSelectOptions}
             />
+            {!loadingCleaners && cleaners.length === 0 && (
+              <p className="text-[11px] text-txt-tertiary mt-1.5 leading-relaxed">
+                No cleaner vendor yet for this property.{" "}
+                <a
+                  href={
+                    propertyId
+                      ? `/property/${propertyId}?tab=vendors`
+                      : "#"
+                  }
+                  className="text-brand font-semibold hover:underline"
+                >
+                  Add a cleaner in the Vendors tab →
+                </a>
+              </p>
+            )}
+            {loadingCleaners && (
+              <p className="text-[11px] text-txt-tertiary mt-1.5">
+                Loading cleaners…
+              </p>
+            )}
           </FormField>
 
           <FormField label="Lead Time">
             <KVSelect
-              value={form.cleaner_lead_time}
+              value={String(form.cleaner_lead_time_hours)}
               onChange={(v) =>
                 setField(
-                  "cleaner_lead_time",
-                  v as DepartureData["cleaner_lead_time"]
+                  "cleaner_lead_time_hours",
+                  parseInt(v, 10) || DEFAULT.cleaner_lead_time_hours
                 )
               }
               options={LEAD_TIME_OPTIONS}
@@ -247,12 +371,12 @@ export function DepartureFlowCard({
         <PreviewBlock
           title="When booking confirmed"
           steps={[
-            `Notify cleaner ${leadTimeShort(form.cleaner_lead_time)} checkout`,
+            `Notify cleaner ${leadTimeShort(form.cleaner_lead_time_hours)} checkout`,
           ]}
           note={
-            form.cleaner_contact
-              ? `To: ${form.cleaner_contact}`
-              : "Cleaner contact not set"
+            selectedCleaner
+              ? `To: ${selectedCleaner.label}`
+              : "No cleaner selected — vendor will skip this step"
           }
         />
       )}
@@ -315,10 +439,12 @@ export function departureFlowSummary(
   data: Record<string, unknown> | undefined
 ): string | undefined {
   if (!hasDataFor(data)) return undefined;
-  const merged: DepartureData = { ...DEFAULT, ...(data as DepartureData) };
+  const merged = normalize(data);
   const parts = [`Check-out ${formatTime12(merged.checkout_time)}`];
   if (merged.cleaner_notify_enabled) {
-    parts.push(`Cleaner notified ${leadTimeShort(merged.cleaner_lead_time)}`);
+    parts.push(
+      `Cleaner notified ${leadTimeShort(merged.cleaner_lead_time_hours)}`
+    );
   } else {
     parts.push("Cleaner OFF");
   }

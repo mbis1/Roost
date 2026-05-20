@@ -12,7 +12,7 @@ import { PropertyHub } from "@/components/property/PropertyHub";
 import WorkflowView from "@/components/views/WorkflowView";
 import { MessagesTab } from "@/components/tabs/MessagesTab";
 import { CalendarTab } from "@/components/tabs/CalendarTab";
-import { VendorsTab } from "@/components/tabs/VendorsTab";
+import { VendorsView } from "@/components/views/VendorsView";
 import { TasksTab } from "@/components/tabs/TasksTab";
 import { useProperty } from "@/lib/hooks";
 
@@ -146,7 +146,9 @@ export function PropertyShell({ propertyId }: { propertyId: string }) {
           {activeTab === "calendar" && property && (
             <CalendarTab property={property} />
           )}
-          {activeTab === "vendors" && <VendorsTab />}
+          {activeTab === "vendors" && (
+            <VendorsView propertyId={propertyId} />
+          )}
           {activeTab === "tasks" && <TasksTab propertyId={propertyId} />}
         </main>
       </div>

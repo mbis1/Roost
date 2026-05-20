@@ -107,7 +107,6 @@ export function usePropertyDetails(propertyId: string | null | undefined) {
 
       // Sprint B.2 — trigger workflow recompile when a workflow-participating
       // card is saved. Fire-and-forget; recompile failure must never block UX.
-      // The endpoint runs on the server with the service-role key.
       if (
         section === "access_and_locks" ||
         section === "arrival_flow" ||
@@ -117,6 +116,15 @@ export function usePropertyDetails(propertyId: string | null | undefined) {
           method: "POST",
         }).catch((err) =>
           console.error("workflow recompile trigger failed:", err)
+        );
+
+        // Sprint F — re-sync booking_events for every upcoming booking
+        // so the new settings (e.g. cleaner lead time, lock-code rule)
+        // flow through to the calendar + booking timelines.
+        fetch(`/api/property/${propertyId}/sync-events`, {
+          method: "POST",
+        }).catch((err) =>
+          console.error("booking-events resync trigger failed:", err)
         );
       }
     },

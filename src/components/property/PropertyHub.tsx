@@ -142,6 +142,7 @@ export function PropertyHub({ propertyId }: { propertyId: string }) {
             <DepartureFlowCard
               data={bySection["departure_flow"]}
               onSave={save}
+              propertyId={propertyId}
             />
             <NotesCard
               icon="rule"

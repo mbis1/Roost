@@ -17,6 +17,7 @@
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { IcalFeed } from "@/lib/supabase";
+import { syncEventsForBooking } from "@/lib/event-sync";
 
 export type SyncResult = {
   property_id: string;
@@ -210,6 +211,31 @@ export async function syncIcalFeed(
       result.errors.push(`upsert ${ev.uid}: ${error.message}`);
     } else {
       result.upserted++;
+
+      // Sprint F — fan out into booking_events for this booking. Errors
+      // here are non-fatal; the upsert already succeeded.
+      const { data: bookingRow } = await supabaseAdmin
+        .from("bookings")
+        .select("id")
+        .eq("property_id", propertyId)
+        .eq("ical_uid", ev.uid)
+        .single();
+      if (bookingRow) {
+        try {
+          const r = await syncEventsForBooking(bookingRow.id as string);
+          if (r.errors.length) {
+            for (const e of r.errors) {
+              result.errors.push(`event sync ${ev.uid}: ${e}`);
+            }
+          }
+        } catch (e) {
+          result.errors.push(
+            `event sync ${ev.uid}: ${
+              e instanceof Error ? e.message : String(e)
+            }`
+          );
+        }
+      }
     }
   }
 
