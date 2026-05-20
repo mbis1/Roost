@@ -165,10 +165,22 @@ export function getOverrideForDate(
  * Surfaced as small color-coded pills inside the day cell so the host
  * can see at a glance what the day involves without expanding anything.
  */
+export type ScheduledItemCategory =
+  | "message"
+  | "ping"
+  | "lock"
+  | "cleaner"
+  | "checkin"
+  | "checkout"
+  | "turnover";
+
 export type ScheduledItem = {
   iso: string;
   type: "task" | "event";
+  /** Human-readable full label (used in the detail drawer + tooltip). */
   label: string;
+  /** Short category — drives the icon + short pill text in the day cell. */
+  category?: ScheduledItemCategory | null;
   /** Source booking id if derived from a booking — lets the UI link back. */
   booking_id?: string | null;
   /** Source workflow step id if derived from a compiled workflow step. */

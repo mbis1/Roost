@@ -48,6 +48,24 @@ function isTaskAction(a: WorkflowAction): boolean {
   );
 }
 
+/** Map an action's type into a UI category (icon + chip color). */
+function actionCategory(
+  a: WorkflowAction
+): "message" | "ping" | "lock" | "cleaner" | null {
+  switch (a.type) {
+    case "send_message_to_guest":
+      return "message";
+    case "send_telegram_ping":
+      return "ping";
+    case "update_lock_code":
+      return "lock";
+    case "notify_cleaner":
+      return "cleaner";
+    default:
+      return null;
+  }
+}
+
 function shiftIso(iso: string, days: number): string {
   const d = new Date(iso + "T12:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);
@@ -89,6 +107,7 @@ function buildScheduledItems(
       out.push({
         iso: checkinDay,
         type: "event",
+        category: "checkin",
         label: `Check-in · ${guest}`,
         booking_id: b.id,
       });
@@ -97,6 +116,7 @@ function buildScheduledItems(
       out.push({
         iso: checkoutDay,
         type: "event",
+        category: "checkout",
         label: `Check-out · ${guest}`,
         booking_id: b.id,
       });
@@ -104,6 +124,7 @@ function buildScheduledItems(
         out.push({
           iso: turnoverDay,
           type: "event",
+          category: "turnover",
           label: "Turnover",
           booking_id: b.id,
         });
@@ -131,6 +152,7 @@ function buildScheduledItems(
         out.push({
           iso: fireIso,
           type: "task",
+          category: actionCategory(a),
           label: shortenLabel(a.description || step.title),
           booking_id: b.id,
           step_id: step.id,

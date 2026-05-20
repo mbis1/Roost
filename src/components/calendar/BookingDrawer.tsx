@@ -6,19 +6,69 @@
 
 "use client";
 
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { Icon } from "@/components/Icon";
+import { supabase } from "@/lib/supabase";
 import type { Booking } from "@/lib/supabase";
 
 export function BookingDrawer({
   booking,
   propertyName,
   onClose,
+  onUpdated,
 }: {
   booking: Booking;
   propertyName?: string;
   onClose: () => void;
+  /** Called after a successful field update so the parent re-fetches. */
+  onUpdated?: () => Promise<void> | void;
 }) {
+  // Optimistic local copy of the guest name so the drawer header reflects
+  // edits immediately without waiting for the parent to refetch.
+  const [guestName, setGuestName] = useState<string | null>(
+    booking.guest_name
+  );
+  useEffect(() => {
+    setGuestName(booking.guest_name);
+  }, [booking.id, booking.guest_name]);
+
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(guestName || "");
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+
+  const startEditName = () => {
+    setNameDraft(guestName || "");
+    setNameError(null);
+    setEditingName(true);
+  };
+  const cancelEditName = () => {
+    setEditingName(false);
+    setNameError(null);
+  };
+  const saveName = async () => {
+    setSavingName(true);
+    setNameError(null);
+    const next = nameDraft.trim() || null;
+    try {
+      const { error } = await supabase
+        .from("bookings")
+        .update({ guest_name: next, updated_at: new Date().toISOString() })
+        .eq("id", booking.id);
+      if (error) {
+        setNameError(error.message);
+        return;
+      }
+      setGuestName(next);
+      setEditingName(false);
+      if (onUpdated) await onUpdated();
+    } catch (e) {
+      setNameError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingName(false);
+    }
+  };
   const nights = Math.max(
     1,
     Math.round(
@@ -51,7 +101,7 @@ export function BookingDrawer({
             <h3 className="text-lg font-extrabold truncate">
               {isBlocked
                 ? "Blocked dates"
-                : booking.guest_name || booking.summary || "Reservation"}
+                : guestName || booking.summary || "Reservation"}
             </h3>
           </div>
           <button
@@ -68,6 +118,60 @@ export function BookingDrawer({
             <Row label="Property">
               <span className="text-txt font-semibold">{propertyName}</span>
             </Row>
+          )}
+          {!isBlocked && (
+            <Row label="Guest name">
+              {editingName ? (
+                <div className="flex items-center gap-1 justify-end">
+                  <input
+                    type="text"
+                    value={nameDraft}
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    placeholder="e.g. Katie"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveName();
+                      if (e.key === "Escape") cancelEditName();
+                    }}
+                    className="flex-1 px-2 py-1 bg-white border border-surface-muted rounded text-xs outline-none focus:border-brand"
+                  />
+                  <button
+                    onClick={saveName}
+                    disabled={savingName}
+                    className="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded bg-brand text-white hover:bg-brand-dark disabled:opacity-50 cursor-pointer"
+                  >
+                    {savingName ? "…" : "Save"}
+                  </button>
+                  <button
+                    onClick={cancelEditName}
+                    className="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded border border-surface-muted text-txt-secondary hover:border-txt-secondary cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <span className="inline-flex items-center gap-2 justify-end">
+                  <span className="text-txt font-semibold">
+                    {guestName || (
+                      <em className="text-txt-tertiary font-normal">
+                        — not set —
+                      </em>
+                    )}
+                  </span>
+                  <button
+                    onClick={startEditName}
+                    className="text-[10px] font-bold uppercase tracking-wide text-brand hover:underline cursor-pointer"
+                  >
+                    Edit
+                  </button>
+                </span>
+              )}
+            </Row>
+          )}
+          {nameError && (
+            <p className="text-[11px] text-status-red font-semibold -mt-2">
+              {nameError}
+            </p>
           )}
           <Row label="Status">
             <span

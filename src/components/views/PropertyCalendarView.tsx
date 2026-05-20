@@ -22,6 +22,7 @@ import { Button } from "@/components/ui";
 import type { Booking, PricingOverride } from "@/lib/supabase";
 import {
   DAYS_OF_WEEK,
+  addDaysIso,
   addMonths,
   buildMonthGrid,
   getBookingForDate,
@@ -32,6 +33,7 @@ import {
   type GridCell,
   type ScheduledItem,
 } from "@/lib/calendar-utils";
+import { ScheduledItemDrawer } from "@/components/calendar/ScheduledItemDrawer";
 import { BookingDrawer } from "@/components/calendar/BookingDrawer";
 import {
   PriceEditModal,
@@ -60,12 +62,20 @@ export function PropertyCalendarView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openBooking, setOpenBooking] = useState<Booking | null>(null);
+  const [openItem, setOpenItem] = useState<ScheduledItem | null>(null);
   const [editScope, setEditScope] = useState<PriceEditScope | null>(null);
   const [syncing, setSyncing] = useState(false);
 
   const cells: GridCell[] = useMemo(() => buildMonthGrid(anchor), [anchor]);
   const rangeStart = cells[0]?.iso;
   const rangeEnd = cells[cells.length - 1]?.iso;
+
+  // Chunk the 42-cell grid into 6 week rows for week-level overlays.
+  const weeks: GridCell[][] = useMemo(() => {
+    const out: GridCell[][] = [];
+    for (let i = 0; i < cells.length; i += 7) out.push(cells.slice(i, i + 7));
+    return out;
+  }, [cells]);
 
   const fetchData = useCallback(async () => {
     if (!rangeStart || !rangeEnd) return;
@@ -335,20 +345,20 @@ export function PropertyCalendarView({
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-7">
-            {cells.map((c) => (
-              <DayCell
-                key={c.iso}
-                cell={c}
-                today={today}
-                baseRate={baseRate}
-                bookings={bookings}
-                overrides={overrides}
-                scheduledItems={scheduledItems}
-                onClick={() => onCellClick(c.iso)}
-              />
-            ))}
-          </div>
+          {weeks.map((weekCells, weekIdx) => (
+            <WeekRow
+              key={weekIdx}
+              cells={weekCells}
+              today={today}
+              baseRate={baseRate}
+              bookings={bookings}
+              overrides={overrides}
+              scheduledItems={scheduledItems}
+              onCellClick={onCellClick}
+              onBookingClick={setOpenBooking}
+              onItemClick={setOpenItem}
+            />
+          ))}
         </div>
 
         {loading && (
@@ -373,6 +383,18 @@ export function PropertyCalendarView({
           booking={openBooking}
           propertyName={propertyName}
           onClose={() => setOpenBooking(null)}
+          onUpdated={fetchData}
+        />
+      )}
+      {openItem && (
+        <ScheduledItemDrawer
+          item={openItem}
+          booking={
+            openItem.booking_id
+              ? bookings.find((b) => b.id === openItem.booking_id) || null
+              : null
+          }
+          onClose={() => setOpenItem(null)}
         />
       )}
       {editScope && (
@@ -388,6 +410,178 @@ export function PropertyCalendarView({
 }
 
 /* ------------------------------------------------------------------ */
+/* WeekRow — 7 day cells + an overlay of continuous booking bars      */
+/* ------------------------------------------------------------------ */
+
+type BookingSegment = {
+  booking: Booking;
+  startCol: number; // 0-6 inclusive within this week
+  endCol: number; // 0-6 inclusive
+  /** Bar's left edge is the booking's true start (round it). */
+  roundLeft: boolean;
+  /** Bar's right edge is the booking's true end (round it). */
+  roundRight: boolean;
+};
+
+function computeBookingSegments(
+  weekCells: GridCell[],
+  bookings: Booking[]
+): BookingSegment[] {
+  if (weekCells.length === 0) return [];
+  const weekStart = weekCells[0].iso;
+  const weekEnd = weekCells[weekCells.length - 1].iso;
+
+  const out: BookingSegment[] = [];
+  for (const b of bookings) {
+    // iCal checkout_date is exclusive — occupied range ends day before.
+    const lastOccupied = addDaysIso(b.checkout_date, -1);
+    if (lastOccupied < weekStart) continue;
+    if (b.checkin_date > weekEnd) continue;
+
+    // First column whose iso is >= booking.checkin_date.
+    let startCol = 0;
+    for (let i = 0; i < weekCells.length; i++) {
+      if (weekCells[i].iso >= b.checkin_date) {
+        startCol = i;
+        break;
+      }
+    }
+    // Last column whose iso is <= lastOccupied.
+    let endCol = 6;
+    for (let i = weekCells.length - 1; i >= 0; i--) {
+      if (weekCells[i].iso <= lastOccupied) {
+        endCol = i;
+        break;
+      }
+    }
+    if (startCol > endCol) continue;
+
+    out.push({
+      booking: b,
+      startCol,
+      endCol,
+      roundLeft: b.checkin_date >= weekStart,
+      roundRight: lastOccupied <= weekEnd,
+    });
+  }
+  return out;
+}
+
+function WeekRow({
+  cells,
+  today,
+  baseRate,
+  bookings,
+  overrides,
+  scheduledItems,
+  onCellClick,
+  onBookingClick,
+  onItemClick,
+}: {
+  cells: GridCell[];
+  today: string;
+  baseRate: number | null;
+  bookings: Booking[];
+  overrides: PricingOverride[];
+  scheduledItems: ScheduledItem[];
+  onCellClick: (iso: string) => void;
+  onBookingClick: (b: Booking) => void;
+  onItemClick: (item: ScheduledItem) => void;
+}) {
+  const segments = useMemo(
+    () => computeBookingSegments(cells, bookings),
+    [cells, bookings]
+  );
+
+  return (
+    <div className="relative grid grid-cols-7">
+      {cells.map((c) => {
+        // Does any booking occupy this date? Used to suppress the price.
+        const hasBooking = bookings.some((b) => {
+          const lastOccupied = addDaysIso(b.checkout_date, -1);
+          return c.iso >= b.checkin_date && c.iso <= lastOccupied;
+        });
+        return (
+          <DayCell
+            key={c.iso}
+            cell={c}
+            today={today}
+            baseRate={baseRate}
+            overrides={overrides}
+            scheduledItems={scheduledItems}
+            hasBooking={hasBooking}
+            onClick={() => onCellClick(c.iso)}
+            onItemClick={onItemClick}
+          />
+        );
+      })}
+
+      {/* Continuous booking bars overlay (per-week) */}
+      <div
+        className="absolute inset-x-0 pointer-events-none"
+        style={{ top: 22, height: 14 }}
+        aria-hidden
+      >
+        {segments.map((seg) => (
+          <BookingBar
+            key={seg.booking.id}
+            segment={seg}
+            onClick={() => onBookingClick(seg.booking)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BookingBar({
+  segment,
+  onClick,
+}: {
+  segment: BookingSegment;
+  onClick: () => void;
+}) {
+  const { booking, startCol, endCol, roundLeft, roundRight } = segment;
+  const isBlocked = booking.status === "blocked";
+  const label = booking.guest_name || booking.summary || "Reserved";
+  const widthPct = ((endCol - startCol + 1) / 7) * 100;
+  const leftPct = (startCol / 7) * 100;
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={clsx(
+        "absolute h-3.5 px-2 flex items-center text-[10px] font-semibold truncate cursor-pointer pointer-events-auto border transition-colors",
+        roundLeft && "rounded-l-md",
+        roundRight && "rounded-r-md",
+        isBlocked
+          ? "bg-surface-muted/60 text-txt-tertiary border-surface-muted"
+          : "bg-brand/15 text-brand border-brand/40 hover:bg-brand/25 hover:border-brand/60"
+      )}
+      style={{
+        left: `calc(${leftPct}% + ${roundLeft ? 2 : 0}px)`,
+        width: `calc(${widthPct}% - ${
+          (roundLeft ? 2 : 0) + (roundRight ? 2 : 0)
+        }px)`,
+        ...(isBlocked
+          ? {
+              backgroundImage:
+                "repeating-linear-gradient(45deg, rgba(0,0,0,0.06) 0 4px, transparent 4px 8px)",
+            }
+          : {}),
+      }}
+      title={isBlocked ? "Blocked" : label}
+    >
+      <span className="truncate">{isBlocked ? "Blocked" : label}</span>
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* DayCell                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -395,62 +589,47 @@ function DayCell({
   cell,
   today,
   baseRate,
-  bookings,
   overrides,
   scheduledItems,
+  hasBooking,
   onClick,
+  onItemClick,
 }: {
   cell: GridCell;
   today: string;
   baseRate: number | null;
-  bookings: Booking[];
   overrides: PricingOverride[];
   scheduledItems: ScheduledItem[];
+  hasBooking: boolean;
   onClick: () => void;
+  onItemClick: (item: ScheduledItem) => void;
 }) {
-  const b = getBookingForDate(cell.iso, bookings);
   const o = getOverrideForDate(cell.iso, overrides);
   const dayItems = getScheduledForDate(cell.iso, scheduledItems);
-  const tasks = dayItems.filter((s) => s.type === "task");
-  const events = dayItems.filter((s) => s.type === "event");
 
   const isToday = cell.iso === today;
   const isPast = cell.iso < today;
   const day = parseInt(cell.iso.slice(8), 10);
 
-  const isBlocked = b?.booking.status === "blocked";
-  const position = b?.position;
-
-  const price = o?.price ?? (baseRate != null && !b ? baseRate : null);
-
-  const bookingLabel = b
-    ? isBlocked
-      ? "Blocked"
-      : b.booking.guest_name || b.booking.summary || "Reserved"
-    : null;
-  const showBookingLabel =
-    !!b && (position === "start" || position === "single");
+  const price = o?.price ?? (baseRate != null && !hasBooking ? baseRate : null);
 
   return (
-    <button
-      type="button"
+    <div
       onClick={onClick}
       className={clsx(
-        "h-16 border-r border-b border-surface-muted text-left relative overflow-hidden cursor-pointer transition-colors flex flex-col",
+        "h-16 border-r border-b border-surface-muted text-left relative overflow-hidden cursor-pointer transition-colors",
         !cell.inMonth && "bg-surface-soft/40 opacity-50",
-        cell.inMonth && !b && "hover:bg-surface-soft",
-        isPast && cell.inMonth && !b && "opacity-65"
+        cell.inMonth && !hasBooking && "hover:bg-surface-soft/60",
+        isPast && cell.inMonth && !hasBooking && "opacity-70"
       )}
     >
-      {/* Top row: day number + price/override dot */}
-      <div className="px-1.5 pt-1 flex items-start justify-between gap-1 flex-shrink-0">
+      {/* Top row: day number + price / override dot */}
+      <div className="px-1.5 pt-1 flex items-start justify-between gap-1">
         <span
           className={clsx(
             "text-[11px] font-semibold leading-none",
             isToday
               ? "text-brand bg-white border border-brand rounded-full w-4 h-4 flex items-center justify-center"
-              : isBlocked
-              ? "text-txt-tertiary line-through"
               : cell.inMonth
               ? "text-txt"
               : "text-txt-tertiary"
@@ -465,7 +644,7 @@ function DayCell({
               title={`Override: $${o.price}`}
             />
           )}
-          {!b && price != null && cell.inMonth && (
+          {!hasBooking && price != null && cell.inMonth && (
             <span className="text-[9px] font-semibold text-txt-secondary leading-none">
               ${Math.round(price)}
             </span>
@@ -473,61 +652,103 @@ function DayCell({
         </div>
       </div>
 
-      {/* Stacked pills: reservation → task(s) → event(s).
-          Thin pills, color-coded. truncate labels for narrow cells. */}
-      <div className="flex flex-col gap-0.5 px-0.5 mt-1 min-h-0">
-        {/* Reservation pill */}
-        {b && (
-          <div
-            className={clsx(
-              "h-3 flex items-center px-1.5 text-[9px] font-semibold leading-none truncate",
-              isBlocked
-                ? "bg-surface-muted/60 text-txt-tertiary"
-                : "bg-brand/15 text-brand",
-              position === "start" && "rounded-l ml-0.5",
-              position === "end" && "rounded-r mr-0.5",
-              position === "single" && "rounded mx-0.5",
-              position === "middle" && ""
-            )}
-            style={
-              isBlocked
-                ? {
-                    backgroundImage:
-                      "repeating-linear-gradient(45deg, rgba(0,0,0,0.06) 0 4px, transparent 4px 8px)",
-                  }
-                : undefined
-            }
-            title={bookingLabel || ""}
-          >
-            {showBookingLabel && (
-              <span className="truncate">{bookingLabel}</span>
-            )}
-          </div>
+      {/* Reserve 18px vertical room for the per-week booking overlay
+          (rendered at WeekRow level, top: 22, h: 14). Chips stack below. */}
+      <div
+        className="absolute left-0 right-0 px-1 flex flex-col gap-0.5"
+        style={{ top: 40 }}
+      >
+        {dayItems.slice(0, 3).map((item, i) => (
+          <ItemChip
+            key={`${cell.iso}-${i}`}
+            item={item}
+            onClick={(e) => {
+              e.stopPropagation();
+              onItemClick(item);
+            }}
+          />
+        ))}
+        {dayItems.length > 3 && (
+          <span className="text-[8px] text-txt-tertiary font-semibold leading-none px-1">
+            +{dayItems.length - 3}
+          </span>
         )}
-
-        {/* Task pills (orange) — one per task on this day */}
-        {tasks.map((t, i) => (
-          <div
-            key={`t-${i}`}
-            className="h-2.5 flex items-center px-1.5 text-[8px] font-semibold leading-none truncate rounded-sm mx-0.5 bg-status-orange-bg/80 text-status-orange"
-            title={t.label}
-          >
-            <span className="truncate">{t.label}</span>
-          </div>
-        ))}
-
-        {/* Event pills (blue) — one per event on this day */}
-        {events.map((e, i) => (
-          <div
-            key={`e-${i}`}
-            className="h-2.5 flex items-center px-1.5 text-[8px] font-semibold leading-none truncate rounded-sm mx-0.5 bg-status-blue-bg/80 text-status-blue"
-            title={e.label}
-          >
-            <span className="truncate">{e.label}</span>
-          </div>
-        ))}
       </div>
-    </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* ItemChip — small clickable category pill                           */
+/* ------------------------------------------------------------------ */
+
+function itemIcon(item: ScheduledItem): string {
+  switch (item.category) {
+    case "message":
+      return "💬";
+    case "ping":
+      return "📲";
+    case "lock":
+      return "🔑";
+    case "cleaner":
+      return "🧹";
+    case "checkin":
+      return "🛬";
+    case "checkout":
+      return "🛫";
+    case "turnover":
+      return "🧽";
+    default:
+      return item.type === "event" ? "📅" : "⚡";
+  }
+}
+
+function itemShortLabel(item: ScheduledItem): string {
+  switch (item.category) {
+    case "message":
+      return "Message";
+    case "ping":
+      return "Ping";
+    case "lock":
+      return "Lock";
+    case "cleaner":
+      return "Cleaner";
+    case "checkin":
+      return "Check-in";
+    case "checkout":
+      return "Check-out";
+    case "turnover":
+      return "Turnover";
+    default:
+      return item.type === "event" ? "Event" : "Task";
+  }
+}
+
+function ItemChip({
+  item,
+  onClick,
+}: {
+  item: ScheduledItem;
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  const icon = itemIcon(item);
+  const short = itemShortLabel(item);
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      className={clsx(
+        "h-3 px-1 flex items-center gap-0.5 rounded-sm cursor-pointer transition-colors leading-none truncate text-[9px] font-semibold",
+        item.type === "task"
+          ? "bg-status-orange-bg/80 text-status-orange hover:bg-status-orange-bg border border-status-orange/30"
+          : "bg-status-blue-bg/80 text-status-blue hover:bg-status-blue-bg border border-status-blue/30"
+      )}
+      title={item.label}
+    >
+      <span aria-hidden>{icon}</span>
+      <span className="truncate">{short}</span>
+    </div>
   );
 }
 
