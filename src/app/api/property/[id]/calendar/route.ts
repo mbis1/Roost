@@ -97,11 +97,14 @@ function buildScheduledItems(
     const guest = b.guest_name || "guest";
 
     // Events derived from the booking itself.
+    // iCal checkout_date is the morning of departure (exclusive); we
+    // anchor the "Check-out" event to the last night the guest is in
+    // the property (last day the reservation bar visibly covers) so
+    // the chip lines up with what the host sees on the calendar.
+    // "Turnover" stays on checkout_date — that's when cleaners arrive.
     const checkinDay = b.checkin_date;
-    // iCal checkout_date is exclusive; the physical checkout happens
-    // the morning of that date, so we surface the event ON that date.
-    const checkoutDay = b.checkout_date;
-    const turnoverDay = checkoutDay; // same day for now
+    const lastNight = shiftIso(b.checkout_date, -1);
+    const turnoverDay = b.checkout_date;
 
     if (checkinDay >= windowStart && checkinDay <= windowEnd) {
       out.push({
@@ -112,23 +115,23 @@ function buildScheduledItems(
         booking_id: b.id,
       });
     }
-    if (checkoutDay >= windowStart && checkoutDay <= windowEnd) {
+    if (lastNight >= windowStart && lastNight <= windowEnd) {
       out.push({
-        iso: checkoutDay,
+        iso: lastNight,
         type: "event",
         category: "checkout",
         label: `Check-out · ${guest}`,
         booking_id: b.id,
       });
-      if (turnoverDay !== checkoutDay) {
-        out.push({
-          iso: turnoverDay,
-          type: "event",
-          category: "turnover",
-          label: "Turnover",
-          booking_id: b.id,
-        });
-      }
+    }
+    if (turnoverDay >= windowStart && turnoverDay <= windowEnd) {
+      out.push({
+        iso: turnoverDay,
+        type: "event",
+        category: "turnover",
+        label: "Turnover",
+        booking_id: b.id,
+      });
     }
 
     // Tasks derived from the compiled workflow steps that have
