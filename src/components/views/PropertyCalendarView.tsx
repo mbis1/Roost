@@ -26,9 +26,11 @@ import {
   buildMonthGrid,
   getBookingForDate,
   getOverrideForDate,
+  getScheduledForDate,
   startOfMonth,
   todayIso,
   type GridCell,
+  type ScheduledItem,
 } from "@/lib/calendar-utils";
 import { BookingDrawer } from "@/components/calendar/BookingDrawer";
 import {
@@ -42,6 +44,7 @@ type CalendarApiResponse = {
   base_rate: number | null;
   bookings: Booking[];
   pricing_overrides: PricingOverride[];
+  scheduled_items: ScheduledItem[];
   range: { start: string; end: string };
 };
 
@@ -98,6 +101,7 @@ export function PropertyCalendarView({
   const today = todayIso();
   const bookings = data?.bookings ?? [];
   const overrides = data?.pricing_overrides ?? [];
+  const scheduledItems = data?.scheduled_items ?? [];
   const baseRate = data?.base_rate ?? null;
   const monthLabel = anchor.toLocaleString(undefined, {
     month: "long",
@@ -340,6 +344,7 @@ export function PropertyCalendarView({
                 baseRate={baseRate}
                 bookings={bookings}
                 overrides={overrides}
+                scheduledItems={scheduledItems}
                 onClick={() => onCellClick(c.iso)}
               />
             ))}
@@ -392,6 +397,7 @@ function DayCell({
   baseRate,
   bookings,
   overrides,
+  scheduledItems,
   onClick,
 }: {
   cell: GridCell;
@@ -399,79 +405,50 @@ function DayCell({
   baseRate: number | null;
   bookings: Booking[];
   overrides: PricingOverride[];
+  scheduledItems: ScheduledItem[];
   onClick: () => void;
 }) {
   const b = getBookingForDate(cell.iso, bookings);
   const o = getOverrideForDate(cell.iso, overrides);
+  const dayItems = getScheduledForDate(cell.iso, scheduledItems);
+  const tasks = dayItems.filter((s) => s.type === "task");
+  const events = dayItems.filter((s) => s.type === "event");
+
   const isToday = cell.iso === today;
   const isPast = cell.iso < today;
   const day = parseInt(cell.iso.slice(8), 10);
 
   const isBlocked = b?.booking.status === "blocked";
-  const isConfirmed = b?.booking.status === "confirmed";
   const position = b?.position;
 
-  const price =
-    o?.price ??
-    (baseRate != null && !b ? baseRate : null);
+  const price = o?.price ?? (baseRate != null && !b ? baseRate : null);
+
+  const bookingLabel = b
+    ? isBlocked
+      ? "Blocked"
+      : b.booking.guest_name || b.booking.summary || "Reserved"
+    : null;
+  const showBookingLabel =
+    !!b && (position === "start" || position === "single");
 
   return (
     <button
       type="button"
       onClick={onClick}
       className={clsx(
-        "h-16 border-r border-b border-surface-muted text-left relative overflow-hidden cursor-pointer transition-colors",
+        "h-16 border-r border-b border-surface-muted text-left relative overflow-hidden cursor-pointer transition-colors flex flex-col",
         !cell.inMonth && "bg-surface-soft/40 opacity-50",
         cell.inMonth && !b && "hover:bg-surface-soft",
         isPast && cell.inMonth && !b && "opacity-65"
       )}
     >
-      {/* Booking bar background */}
-      {b && (
-        <div
-          className={clsx(
-            "absolute inset-y-2 left-0 right-0 flex items-center px-2",
-            isBlocked
-              ? "bg-surface-muted/60"
-              : "bg-brand/15 border-y border-brand/30",
-            position === "start" && "rounded-l-lg ml-1",
-            position === "end" && "rounded-r-lg mr-1",
-            position === "single" && "rounded-lg mx-1"
-          )}
-          style={{
-            // Diagonal stripes for blocked
-            ...(isBlocked
-              ? {
-                  backgroundImage:
-                    "repeating-linear-gradient(45deg, rgba(0,0,0,0.06) 0 4px, transparent 4px 8px)",
-                }
-              : {}),
-          }}
-        >
-          {(position === "start" || position === "single") && (
-            <span
-              className={clsx(
-                "text-[11px] font-semibold truncate",
-                isBlocked ? "text-txt-tertiary" : "text-brand"
-              )}
-            >
-              {isBlocked
-                ? "Blocked"
-                : b.booking.guest_name ||
-                  b.booking.summary ||
-                  "Reserved"}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Day number */}
-      <div className="relative px-2 py-1.5 flex items-start justify-between">
+      {/* Top row: day number + price/override dot */}
+      <div className="px-1.5 pt-1 flex items-start justify-between gap-1 flex-shrink-0">
         <span
           className={clsx(
-            "text-[11px] font-semibold",
+            "text-[11px] font-semibold leading-none",
             isToday
-              ? "text-brand bg-white border border-brand rounded-full w-5 h-5 flex items-center justify-center"
+              ? "text-brand bg-white border border-brand rounded-full w-4 h-4 flex items-center justify-center"
               : isBlocked
               ? "text-txt-tertiary line-through"
               : cell.inMonth
@@ -481,20 +458,75 @@ function DayCell({
         >
           {day}
         </span>
-        {o && (
-          <span
-            className="w-1.5 h-1.5 rounded-full bg-brand mt-1.5"
-            title={`Override: $${o.price}`}
-          />
-        )}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {o && (
+            <span
+              className="w-1 h-1 rounded-full bg-brand"
+              title={`Override: $${o.price}`}
+            />
+          )}
+          {!b && price != null && cell.inMonth && (
+            <span className="text-[9px] font-semibold text-txt-secondary leading-none">
+              ${Math.round(price)}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Price (only on free days) */}
-      {!b && price != null && cell.inMonth && (
-        <div className="absolute bottom-1.5 right-2 text-[11px] font-semibold text-txt-secondary">
-          ${Math.round(price)}
-        </div>
-      )}
+      {/* Stacked pills: reservation → task(s) → event(s).
+          Thin pills, color-coded. truncate labels for narrow cells. */}
+      <div className="flex flex-col gap-0.5 px-0.5 mt-1 min-h-0">
+        {/* Reservation pill */}
+        {b && (
+          <div
+            className={clsx(
+              "h-3 flex items-center px-1.5 text-[9px] font-semibold leading-none truncate",
+              isBlocked
+                ? "bg-surface-muted/60 text-txt-tertiary"
+                : "bg-brand/15 text-brand",
+              position === "start" && "rounded-l ml-0.5",
+              position === "end" && "rounded-r mr-0.5",
+              position === "single" && "rounded mx-0.5",
+              position === "middle" && ""
+            )}
+            style={
+              isBlocked
+                ? {
+                    backgroundImage:
+                      "repeating-linear-gradient(45deg, rgba(0,0,0,0.06) 0 4px, transparent 4px 8px)",
+                  }
+                : undefined
+            }
+            title={bookingLabel || ""}
+          >
+            {showBookingLabel && (
+              <span className="truncate">{bookingLabel}</span>
+            )}
+          </div>
+        )}
+
+        {/* Task pills (orange) — one per task on this day */}
+        {tasks.map((t, i) => (
+          <div
+            key={`t-${i}`}
+            className="h-2.5 flex items-center px-1.5 text-[8px] font-semibold leading-none truncate rounded-sm mx-0.5 bg-status-orange-bg/80 text-status-orange"
+            title={t.label}
+          >
+            <span className="truncate">{t.label}</span>
+          </div>
+        ))}
+
+        {/* Event pills (blue) — one per event on this day */}
+        {events.map((e, i) => (
+          <div
+            key={`e-${i}`}
+            className="h-2.5 flex items-center px-1.5 text-[8px] font-semibold leading-none truncate rounded-sm mx-0.5 bg-status-blue-bg/80 text-status-blue"
+            title={e.label}
+          >
+            <span className="truncate">{e.label}</span>
+          </div>
+        ))}
+      </div>
     </button>
   );
 }

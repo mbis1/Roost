@@ -149,3 +149,35 @@ export function getOverrideForDate(
   }
   return null;
 }
+
+/* ------------------------------------------------------------------ */
+/* Scheduled items on a date                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A "thing happening on this day" that isn't the reservation itself.
+ * Two flavors today:
+ *   - task: an automated action that fires on this day (Telegram ping,
+ *           draft, lock-code update, cleaner notification, etc.)
+ *   - event: a physical event happening on this day (check-in,
+ *           checkout, cleaning, turnover)
+ *
+ * Surfaced as small color-coded pills inside the day cell so the host
+ * can see at a glance what the day involves without expanding anything.
+ */
+export type ScheduledItem = {
+  iso: string;
+  type: "task" | "event";
+  label: string;
+  /** Source booking id if derived from a booking — lets the UI link back. */
+  booking_id?: string | null;
+  /** Source workflow step id if derived from a compiled workflow step. */
+  step_id?: string | null;
+};
+
+export function getScheduledForDate(
+  iso: string,
+  items: ScheduledItem[]
+): ScheduledItem[] {
+  return items.filter((i) => i.iso === iso);
+}
