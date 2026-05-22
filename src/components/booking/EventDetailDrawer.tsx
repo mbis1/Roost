@@ -89,8 +89,9 @@ export function EventDetailDrawer({
   onClose: () => void;
   onUpdated?: () => Promise<void> | void;
 }) {
-  const [busy, setBusy] = useState<"skip" | "complete" | null>(null);
+  const [busy, setBusy] = useState<"skip" | "complete" | "fire" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fireToast, setFireToast] = useState<string | null>(null);
   const [varsOpen, setVarsOpen] = useState(false);
 
   /* --------- Related booking (fetched on mount) --------- */
@@ -175,6 +176,34 @@ export function EventDetailDrawer({
       }
       if (onUpdated) await onUpdated();
       // Per spec: refresh but don't close.
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Sprint G — fire this event to Telegram via the executor. */
+  const fireNow = async () => {
+    setBusy("fire");
+    setError(null);
+    setFireToast(null);
+    try {
+      const r = await fetch(`/api/booking-events/${event.id}/fire`, {
+        method: "POST",
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        const reason = j.reason || j.error || `HTTP ${r.status}`;
+        setError(`Run failed: ${reason}`);
+        return;
+      }
+      setFireToast(
+        `Fired to Telegram${
+          j.telegram_message_id ? ` (msg #${j.telegram_message_id})` : ""
+        }. Check your phone.`
+      );
+      if (onUpdated) await onUpdated();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -352,7 +381,12 @@ export function EventDetailDrawer({
             </Section>
           )}
 
-          {/* Error surface (shared by both buttons) */}
+          {/* Action toast / error surfaces */}
+          {fireToast && (
+            <div className="rounded-lg border border-status-green/30 bg-status-green-bg/50 px-3 py-2 text-xs text-status-green font-semibold">
+              ✓ {fireToast}
+            </div>
+          )}
           {error && (
             <div className="rounded-lg border border-status-red/30 bg-status-red-bg/50 px-3 py-2 text-xs text-status-red font-semibold">
               ⚠ {error}
@@ -395,11 +429,29 @@ export function EventDetailDrawer({
             </button>
             <button
               type="button"
-              disabled
-              title="Wired up in Sprint G"
-              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-brand/30 text-white border border-brand/30 opacity-55 cursor-not-allowed"
+              onClick={fireNow}
+              disabled={
+                busy !== null ||
+                event.status === "fired" ||
+                event.status === "completed" ||
+                event.status === "skipped"
+              }
+              className={clsx(
+                "px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors inline-flex items-center gap-1",
+                busy !== null ||
+                  event.status === "fired" ||
+                  event.status === "completed" ||
+                  event.status === "skipped"
+                  ? "opacity-55 cursor-not-allowed bg-white text-brand border-brand/40"
+                  : "bg-white text-brand border-brand/40 hover:bg-brand/10 cursor-pointer"
+              )}
+              title={
+                event.status !== "pending"
+                  ? `Status is ${event.status}; can only run pending events`
+                  : "Send this event to Telegram now"
+              }
             >
-              ▶ Run now
+              {busy === "fire" ? "Firing…" : "▶ Run now"}
             </button>
           </div>
 

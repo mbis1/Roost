@@ -170,8 +170,9 @@ export function ScheduledItemDrawer({
 
   /* --------- Action handlers --------- */
 
-  const [busy, setBusy] = useState<"skip" | "complete" | null>(null);
+  const [busy, setBusy] = useState<"skip" | "complete" | "fire" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [fireToast, setFireToast] = useState<string | null>(null);
 
   const skipEvent = async () => {
     if (!event) return;
@@ -216,6 +217,35 @@ export function ScheduledItemDrawer({
         return;
       }
       // Per spec: refresh, no close. Re-fetch the event to update state.
+      setFetchTick((n) => n + 1);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Sprint G — fire this event to Telegram via the executor. */
+  const fireNow = async () => {
+    if (!event) return;
+    setBusy("fire");
+    setActionError(null);
+    setFireToast(null);
+    try {
+      const r = await fetch(`/api/booking-events/${event.id}/fire`, {
+        method: "POST",
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        const reason = j.reason || j.error || `HTTP ${r.status}`;
+        setActionError(`Run failed: ${reason}`);
+        return;
+      }
+      setFireToast(
+        `Fired to Telegram${
+          j.telegram_message_id ? ` (msg #${j.telegram_message_id})` : ""
+        }. Check your phone.`
+      );
       setFetchTick((n) => n + 1);
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
@@ -450,7 +480,12 @@ export function ScheduledItemDrawer({
             </Section>
           )}
 
-          {/* Action error surface */}
+          {/* Action toast / error surfaces */}
+          {fireToast && (
+            <div className="rounded-lg border border-status-green/30 bg-status-green-bg/50 px-3 py-2 text-xs text-status-green font-semibold">
+              ✓ {fireToast}
+            </div>
+          )}
           {actionError && (
             <div className="rounded-lg border border-status-red/30 bg-status-red-bg/50 px-3 py-2 text-xs text-status-red font-semibold">
               ⚠ {actionError}
@@ -511,11 +546,34 @@ export function ScheduledItemDrawer({
             </button>
             <button
               type="button"
-              disabled
-              title="Wired up in Sprint G"
-              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-brand/30 text-white border border-brand/30 opacity-55 cursor-not-allowed"
+              onClick={fireNow}
+              disabled={
+                !event ||
+                busy !== null ||
+                event.status === "fired" ||
+                event.status === "completed" ||
+                event.status === "skipped"
+              }
+              className={clsx(
+                "px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors inline-flex items-center gap-1",
+                !event ||
+                  busy !== null ||
+                  (event &&
+                    (event.status === "fired" ||
+                      event.status === "completed" ||
+                      event.status === "skipped"))
+                  ? "opacity-55 cursor-not-allowed bg-white text-brand border-brand/40"
+                  : "bg-white text-brand border-brand/40 hover:bg-brand/10 cursor-pointer"
+              )}
+              title={
+                !event
+                  ? "No automated event behind this calendar item"
+                  : event.status !== "pending"
+                  ? `Status is ${event.status}; can only run pending events`
+                  : "Send this event to Telegram now"
+              }
             >
-              ▶ Run now
+              {busy === "fire" ? "Firing…" : "▶ Run now"}
             </button>
           </div>
 

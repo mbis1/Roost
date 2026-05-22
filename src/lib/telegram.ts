@@ -240,8 +240,11 @@ export async function dispatchWorkflowRunToTelegram(
   }
 }
 
-// Send a message via Telegram Bot API
-async function sendTelegramMessage(
+// Send a message via Telegram Bot API (legacy internal — takes an
+// explicit TelegramConfig so user_settings-aware callers can use it.
+// Sprint G introduced an env-vars-only `sendTelegramMessage` export
+// below; this one was renamed to avoid the collision.)
+async function legacySendTelegramMessage(
   config: TelegramConfig,
   text: string,
   replyMarkup?: any
@@ -297,7 +300,7 @@ export async function sendDraftToTelegram(
     ],
   };
 
-  return sendTelegramMessage(config, text, replyMarkup);
+  return legacySendTelegramMessage(config, text, replyMarkup);
 }
 
 // Send a timed sequence draft (pre-arrival, checkout reminder, etc)
@@ -333,7 +336,7 @@ export async function sendSequencedDraft(
     ],
   };
 
-  return sendTelegramMessage(config, text, replyMarkup);
+  return legacySendTelegramMessage(config, text, replyMarkup);
 }
 
 // Send a simple alert notification
@@ -343,7 +346,7 @@ export async function sendTelegramAlert(
   body: string
 ): Promise<boolean> {
   const text = `🔔 <b>${title}</b>\n\n${body}`;
-  return sendTelegramMessage(config, text);
+  return legacySendTelegramMessage(config, text);
 }
 
 // Process incoming message: fetch property data, generate AI draft, store in thread, send via Telegram
@@ -442,5 +445,121 @@ export async function processAndNotify(
   } catch (error) {
     console.error("processAndNotify error:", error);
     return false;
+  }
+}
+
+/* ================================================================== */
+/* Sprint G — env-var-only helpers used by the event executor.        */
+/*                                                                    */
+/* These exist alongside the user-settings-aware helpers above. They  */
+/* read process.env directly so the executor doesn't depend on the    */
+/* user_settings row being populated; on Vercel TELEGRAM_BOT_TOKEN /  */
+/* TELEGRAM_CHAT_ID env vars are the source of truth.                 */
+/* ================================================================== */
+
+const TELEGRAM_API = "https://api.telegram.org";
+
+type SprintGInlineButton = { text: string; callback_data: string };
+
+type SprintGSendMessageOptions = {
+  parse_mode?: "Markdown" | "HTML";
+  inline_keyboard?: SprintGInlineButton[][];
+  disable_web_page_preview?: boolean;
+};
+
+/**
+ * Sprint G — send a Telegram message to the env-configured chat id,
+ * optionally with an inline keyboard. Returns the message_id on
+ * success so callers can later edit it (e.g. to strip the buttons
+ * after a tap).
+ */
+export async function sendTelegramMessage(
+  text: string,
+  options: SprintGSendMessageOptions = {}
+): Promise<{ ok: boolean; message_id?: number; error?: string }> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) {
+    return {
+      ok: false,
+      error: "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set",
+    };
+  }
+
+  const body: Record<string, unknown> = {
+    chat_id: chatId,
+    text,
+    disable_web_page_preview: options.disable_web_page_preview ?? true,
+  };
+  if (options.parse_mode) body.parse_mode = options.parse_mode;
+  if (options.inline_keyboard) {
+    body.reply_markup = { inline_keyboard: options.inline_keyboard };
+  }
+
+  try {
+    const res = await fetch(`${TELEGRAM_API}/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      return { ok: false, error: data.description || "unknown error" };
+    }
+    return { ok: true, message_id: data.result?.message_id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Sprint G — acknowledge an inline-button tap. Required by Telegram's
+ * spec to clear the loading spinner on the button. The optional `text`
+ * shows as a small popup/toast on the user's device.
+ */
+export async function answerTelegramCallback(
+  callback_query_id: string,
+  text?: string
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  try {
+    await fetch(`${TELEGRAM_API}/bot${token}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callback_query_id, text }),
+    });
+  } catch (err) {
+    console.error("answerTelegramCallback error:", err);
+  }
+}
+
+/**
+ * Sprint G — replace (or strip) the inline keyboard on a previously
+ * sent message. Passing null clears the buttons so the user can't tap
+ * them twice after a decision has been made.
+ */
+export async function editTelegramMessageReplyMarkup(
+  message_id: number,
+  inline_keyboard: SprintGInlineButton[][] | null
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+
+  try {
+    await fetch(`${TELEGRAM_API}/bot${token}/editMessageReplyMarkup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id,
+        reply_markup: inline_keyboard
+          ? { inline_keyboard }
+          : { inline_keyboard: [] },
+      }),
+    });
+  } catch (err) {
+    console.error("editTelegramMessageReplyMarkup error:", err);
   }
 }

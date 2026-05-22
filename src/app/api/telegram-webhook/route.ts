@@ -5,8 +5,18 @@ import {
   answerCallbackQuery,
   editTelegramMessage,
   sendPlainTelegramMessage,
+  answerTelegramCallback,
+  editTelegramMessageReplyMarkup,
+  sendTelegramMessage,
 } from "@/lib/telegram";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+
+/** Sprint G — appended to a booking_event's notes column for audit. */
+function appendNote(existing: string | null, line: string): string {
+  const ts = new Date().toISOString();
+  const entry = `[${ts}] ${line}`;
+  return existing ? `${existing}\n${entry}` : entry;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,6 +26,23 @@ export async function POST(request: NextRequest) {
       const callbackData: string = update.callback_query.data || "";
       const callbackId: string = update.callback_query.id;
       const message = update.callback_query.message;
+
+      // Sprint G — booking_event approval/skip/edit callbacks. Prefixes
+      // are done: / skip: / edit: and the value after the colon is the
+      // booking_event uuid. These need to come before the legacy
+      // wf_approve / wf_reject handling because the prefix space is
+      // distinct but we want to fail fast on the new flow.
+      if (
+        callbackData.startsWith("done:") ||
+        callbackData.startsWith("skip:") ||
+        callbackData.startsWith("edit:")
+      ) {
+        return await handleBookingEventCallback(
+          callbackData,
+          callbackId,
+          message?.message_id as number | undefined
+        );
+      }
 
       // Sprint B.4 — workflow run approve / reject.
       if (callbackData.startsWith("wf_approve:") || callbackData.startsWith("wf_reject:")) {
@@ -126,4 +153,78 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   return NextResponse.json({ status: "Telegram webhook ready" });
+}
+
+/* ------------------------------------------------------------------ */
+/* Sprint G — booking_event callback handler                          */
+/* ------------------------------------------------------------------ */
+
+async function handleBookingEventCallback(
+  data: string,
+  callbackId: string,
+  messageId: number | undefined
+) {
+  const [action, eventId] = data.split(":");
+  if (!eventId) {
+    await answerTelegramCallback(callbackId, "Invalid callback");
+    return NextResponse.json({ ok: false });
+  }
+
+  const { data: event } = await supabaseAdmin
+    .from("booking_events")
+    .select("*")
+    .eq("id", eventId)
+    .single();
+
+  if (!event) {
+    await answerTelegramCallback(callbackId, "Event not found");
+    return NextResponse.json({ ok: false });
+  }
+
+  if (action === "done") {
+    await supabaseAdmin
+      .from("booking_events")
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        notes: appendNote(
+          event.notes as string | null,
+          "User marked complete via Telegram"
+        ),
+      })
+      .eq("id", eventId);
+    await answerTelegramCallback(callbackId, "Marked done ✅");
+    if (messageId) await editTelegramMessageReplyMarkup(messageId, null);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "skip") {
+    await supabaseAdmin
+      .from("booking_events")
+      .update({
+        status: "skipped",
+        completed_at: new Date().toISOString(),
+        notes: appendNote(
+          event.notes as string | null,
+          "User skipped via Telegram"
+        ),
+      })
+      .eq("id", eventId);
+    await answerTelegramCallback(callbackId, "Skipped ⏭");
+    if (messageId) await editTelegramMessageReplyMarkup(messageId, null);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "edit") {
+    const bookingId = event.booking_id as string;
+    const editUrl = `https://roost-pi.vercel.app/booking/${bookingId}`;
+    await answerTelegramCallback(callbackId, "Open in Roost to edit");
+    await sendTelegramMessage(
+      `✏️ To edit this step's template, open the booking in Roost:\n${editUrl}\n\n(Inline editing via Telegram coming soon.)`
+    );
+    return NextResponse.json({ ok: true });
+  }
+
+  await answerTelegramCallback(callbackId, "Unknown action");
+  return NextResponse.json({ ok: false });
 }
