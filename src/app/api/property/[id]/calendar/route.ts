@@ -1,17 +1,23 @@
 // src/app/api/property/[id]/calendar/route.ts
 //
-// Sprint E — calendar data for a property over a date range.
+// Sprint G fix — the calendar's scheduled_items now come straight from
+// booking_events (Sprint F's source of truth) instead of a parallel
+// projection off the compiled workflow. Otherwise the two used
+// different step_id namespaces and the drawer's "Run now" button
+// stayed disabled because it couldn't find a matching event row.
 //
 //   GET /api/property/<id>/calendar?start=YYYY-MM-DD&end=YYYY-MM-DD
 //
 // Returns: property metadata + base nightly rate + bookings overlapping
-// the range + pricing overrides in the range + scheduled_items (tasks
-// + events derived from the compiled workflow and bookings).
+// the range + pricing overrides in the range + scheduled_items (every
+// booking_event whose scheduled_at falls in the window, plus check-in /
+// check-out / turnover synthetic event chips derived from booking
+// dates so the calendar always shows the lifecycle anchors even before
+// the executor has fanned out the rows).
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import type { WorkflowStep, WorkflowAction } from "@/lib/workflow-types";
-import type { ScheduledItem } from "@/lib/calendar-utils";
+import type { ScheduledItem, ScheduledItemCategory } from "@/lib/calendar-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -25,47 +31,6 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-type BookingRow = {
-  id: string;
-  checkin_date: string;
-  checkout_date: string;
-  guest_name: string | null;
-  status: string;
-};
-
-/**
- * Classify a workflow action: is it a "task" (you do something / a
- * Telegram ping fires) or an "event" (a physical event happens)?
- * Currently all action types map to "task" except noop/advance_step.
- * Events come from bookings directly (check-in, check-out, turnover).
- */
-function isTaskAction(a: WorkflowAction): boolean {
-  return (
-    a.type === "send_message_to_guest" ||
-    a.type === "send_telegram_ping" ||
-    a.type === "update_lock_code" ||
-    a.type === "notify_cleaner"
-  );
-}
-
-/** Map an action's type into a UI category (icon + chip color). */
-function actionCategory(
-  a: WorkflowAction
-): "message" | "ping" | "lock" | "cleaner" | null {
-  switch (a.type) {
-    case "send_message_to_guest":
-      return "message";
-    case "send_telegram_ping":
-      return "ping";
-    case "update_lock_code":
-      return "lock";
-    case "notify_cleaner":
-      return "cleaner";
-    default:
-      return null;
-  }
-}
-
 function shiftIso(iso: string, days: number): string {
   const d = new Date(iso + "T12:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);
@@ -75,33 +40,91 @@ function shiftIso(iso: string, days: number): string {
   return `${y}-${m}-${dd}`;
 }
 
+type BookingRow = {
+  id: string;
+  checkin_date: string;
+  checkout_date: string;
+  guest_name: string | null;
+  status: string;
+};
+
+type BookingEventRow = {
+  id: string;
+  booking_id: string;
+  step_id: string;
+  scheduled_at: string;
+  status: string;
+  payload: Record<string, unknown> | null;
+};
+
 /**
- * For each booking + each time-relative compiled workflow step that has
- * task-flavored actions, project the step's fire date onto the calendar.
- * Drop items that fall outside the requested window.
- *
- * Also synthesize "event" items from the booking dates themselves
- * (check-in, check-out, turnover) so the calendar always shows what
- * physically happens, even before the workflow compiler is wired up.
+ * Map Sprint F's booking_event step_ids onto the calendar's
+ * ScheduledItemCategory (drives the icon + chip color).
  */
+function categoryForStepId(stepId: string): ScheduledItemCategory | null {
+  switch (stepId) {
+    case "WELCOME_MESSAGE":
+      return "message";
+    case "CLEANER_NOTIFY":
+      return "cleaner";
+    case "CLEANER_ARRIVES":
+      return "cleaner";
+    case "LOCK_CODE_UPDATE":
+      return "lock";
+    case "CHECKOUT_REMINDER":
+      return "message";
+    case "CONFIRM_TURNOVER":
+      return "turnover";
+    default:
+      return null;
+  }
+}
+
+function humanStepLabel(stepId: string): string {
+  const map: Record<string, string> = {
+    WELCOME_MESSAGE: "Welcome message",
+    CLEANER_NOTIFY: "Notify cleaner",
+    CLEANER_ARRIVES: "Cleaner arrives",
+    LOCK_CODE_UPDATE: "Update lock code",
+    CHECKOUT_REMINDER: "Checkout reminder",
+    CONFIRM_TURNOVER: "Confirm turnover",
+  };
+  return map[stepId] || stepId;
+}
+
 function buildScheduledItems(
   bookings: BookingRow[],
-  steps: WorkflowStep[],
+  events: BookingEventRow[],
   windowStart: string,
   windowEnd: string
 ): ScheduledItem[] {
   const out: ScheduledItem[] = [];
 
+  // 1) booking_events from Sprint F → these are the real, fire-able
+  //    rows. Render every one in the window (including non-pending so
+  //    the host can still see history on the calendar — colored by
+  //    status downstream).
+  for (const e of events) {
+    const iso = e.scheduled_at.slice(0, 10);
+    if (iso < windowStart || iso > windowEnd) continue;
+    const cat = categoryForStepId(e.step_id);
+    out.push({
+      iso,
+      type: "task",
+      category: cat,
+      label: humanStepLabel(e.step_id),
+      booking_id: e.booking_id,
+      step_id: e.step_id,
+    });
+  }
+
+  // 2) Synthetic lifecycle events (check-in, check-out, turnover) —
+  //    these are derived from booking dates and don't have a backing
+  //    booking_event row. Useful as calendar anchors but the drawer's
+  //    Run-now stays disabled for them (they're informational).
   for (const b of bookings) {
     if (b.status !== "confirmed") continue;
     const guest = b.guest_name || "guest";
-
-    // Events derived from the booking itself.
-    // iCal checkout_date is the morning of departure (exclusive); we
-    // anchor the "Check-out" event to the last night the guest is in
-    // the property (last day the reservation bar visibly covers) so
-    // the chip lines up with what the host sees on the calendar.
-    // "Turnover" stays on checkout_date — that's when cleaners arrive.
     const checkinDay = b.checkin_date;
     const lastNight = shiftIso(b.checkout_date, -1);
     const turnoverDay = b.checkout_date;
@@ -133,45 +156,10 @@ function buildScheduledItems(
         booking_id: b.id,
       });
     }
-
-    // Tasks derived from the compiled workflow steps that have
-    // time_relative triggers. Each fires once per booking.
-    for (const step of steps) {
-      const t = step.trigger;
-      if (t.type !== "time_relative") continue;
-      const relativeTo = t.relative_to;
-      const offsetHours = t.offset_hours ?? 0;
-      if (relativeTo !== "checkin_date" && relativeTo !== "checkout_date")
-        continue;
-      const anchor =
-        relativeTo === "checkin_date" ? b.checkin_date : b.checkout_date;
-      // Offset is in hours but we display by calendar day. Round to nearest day.
-      const offsetDays = Math.round(offsetHours / 24);
-      const fireIso = shiftIso(anchor, offsetDays);
-      if (fireIso < windowStart || fireIso > windowEnd) continue;
-
-      const taskActions = step.actions.filter(isTaskAction);
-      for (const a of taskActions) {
-        out.push({
-          iso: fireIso,
-          type: "task",
-          category: actionCategory(a),
-          label: shortenLabel(a.description || step.title),
-          booking_id: b.id,
-          step_id: step.id,
-        });
-      }
-    }
   }
 
-  // Sort by date so the UI sees them in order.
   out.sort((a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : 0));
   return out;
-}
-
-function shortenLabel(s: string, max = 40): string {
-  if (s.length <= max) return s;
-  return s.slice(0, max - 1) + "…";
 }
 
 export async function GET(
@@ -195,8 +183,6 @@ export async function GET(
     );
   }
 
-  // Base rate: prefer pricing_rules card data, fall back to
-  // properties.price_per_night so the UI never has a literal blank.
   const { data: pricingDetail } = await supabaseAdmin
     .from("property_details")
     .select("data")
@@ -212,8 +198,6 @@ export async function GET(
       ? parseFloat(pricingData.base_nightly_rate) || null
       : (prop.price_per_night as number | null) || null;
 
-  // Bookings: any whose date range overlaps [startDate, endDate].
-  // checkout_date is exclusive (iCal convention) so we compare with strict <.
   const { data: bookings } = await supabaseAdmin
     .from("bookings")
     .select("*")
@@ -229,20 +213,22 @@ export async function GET(
     .gte("date", startDate)
     .lte("date", endDate);
 
-  // Compiled workflow for the property — drives the task projection.
-  const { data: workflowRow } = await supabaseAdmin
-    .from("property_workflows")
-    .select("steps")
+  // booking_events live by scheduled_at TIMESTAMP, but we filter on
+  // string ISO date for the window — Postgres compares timestamptz
+  // vs ISO date correctly via the lte/gte operators.
+  const windowStartTs = `${startDate}T00:00:00Z`;
+  const windowEndTs = `${endDate}T23:59:59Z`;
+  const { data: events } = await supabaseAdmin
+    .from("booking_events")
+    .select("id, booking_id, step_id, scheduled_at, status, payload")
     .eq("property_id", params.id)
-    .maybeSingle();
-
-  const compiledSteps = ((workflowRow?.steps as WorkflowStep[]) || []).filter(
-    (s) => s.enabled && s.execution_mode !== "skipped"
-  );
+    .gte("scheduled_at", windowStartTs)
+    .lte("scheduled_at", windowEndTs)
+    .order("scheduled_at", { ascending: true });
 
   const scheduledItems = buildScheduledItems(
     (bookings || []) as BookingRow[],
-    compiledSteps,
+    (events || []) as BookingEventRow[],
     startDate,
     endDate
   );
@@ -257,10 +243,6 @@ export async function GET(
       range: { start: startDate, end: endDate },
     },
     {
-      // Belt-and-suspenders: tell every cache layer (browser, Vercel CDN,
-      // anything in between) not to keep this response. dynamic: force-
-      // dynamic prevents Next.js's own static caching; this header
-      // handles the browser + CDN edge.
       headers: {
         "Cache-Control": "no-store, must-revalidate",
         "CDN-Cache-Control": "no-store",
