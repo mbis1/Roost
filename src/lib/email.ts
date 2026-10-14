@@ -23,6 +23,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { categorizeEmail } from "@/lib/categorize";
+import { alertIfWatched, loadActiveWatches, type EmailWatch } from "@/lib/email-alerts";
 
 export const TARGET_ADDRESS = "anjeyka@yahoo.com";
 const DEFAULT_DAYS = 30;
@@ -147,6 +148,14 @@ export async function processAnjeykaEmails(
         });
       }
 
+      // Email alerts — load watched senders once per run.
+      let watches: EmailWatch[] = [];
+      try {
+        watches = await loadActiveWatches();
+      } catch {
+        /* table may not exist yet — alerts just stay off */
+      }
+
       // Pass 2 — dedup, fetch body, insert.
       for (const m of matches) {
         const rawUid = String(m.uid);
@@ -251,6 +260,22 @@ export async function processAnjeykaEmails(
           } catch (logErr) {
             errors.push(`cat_log uid=${m.uid}: ${String(logErr)}`);
           }
+        }
+
+        // Email alerts — text Milo if this sender is watched. Best-effort.
+        if (watches.length > 0 && primaryTag !== "spam") {
+          const alertErr = await alertIfWatched(
+            {
+              id: inserted.id,
+              from_addr: m.fromAddr,
+              from_name: m.fromName,
+              subject: m.subject,
+              body_text: bodyText,
+              received_at: m.receivedAt,
+            },
+            watches
+          );
+          if (alertErr) errors.push(alertErr);
         }
 
         stored++;

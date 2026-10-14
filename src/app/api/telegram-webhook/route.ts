@@ -10,6 +10,7 @@ import {
   sendTelegramMessage,
 } from "@/lib/telegram";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { handleEmailAlertCallback } from "@/lib/email-alert-callbacks";
 
 /** Sprint G — appended to a booking_event's notes column for audit. */
 function appendNote(existing: string | null, line: string): string {
@@ -42,6 +43,12 @@ export async function POST(request: NextRequest) {
           callbackId,
           message?.message_id as number | undefined
         );
+      }
+
+      // Email alerts — copy / redraft / handled.
+      if (callbackData.startsWith("ea_")) {
+        await handleEmailAlertCallback(callbackData, callbackId, message?.message_id as number | undefined);
+        return NextResponse.json({ ok: true });
       }
 
       // Sprint B.4 — workflow run approve / reject.

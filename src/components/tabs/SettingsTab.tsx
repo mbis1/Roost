@@ -11,6 +11,7 @@ import {
   Grid2,
   Button,
 } from "@/components/ui";
+import { EmailAlertsCard } from "@/components/settings/EmailAlertsCard";
 
 type TestState = {
   status: "idle" | "running" | "ok" | "error";
@@ -241,6 +242,8 @@ export function SettingsTab() {
           <em>Send test message</em> to confirm.
         </p>
       </Card>
+
+      <EmailAlertsCard />
 
       <Card className="mb-4">
         <div className="font-bold text-sm mb-3">AI Configuration</div>
