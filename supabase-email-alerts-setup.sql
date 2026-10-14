@@ -49,10 +49,18 @@ do $$ begin
   end if;
 end $$;
 
--- Seed: Jen Forman, Glenolden long-stay guest (2026-07-18 → 2027-07-18).
--- Add her email address in Settings → Email alerts once known.
+-- Seed: Jen Forman, Glenolden 12-month lease tenant. Emails Joanna at
+-- anjeyka@yahoo.com; alerts go to Jacob's Telegram. Re-running updates it.
 insert into email_watches (label, match_from, match_names, property_id, context_notes)
-select 'Jen Forman (Glenolden)', '', 'Jen Forman, Jennifer Forman, Forman',
-       (select id from properties where id = '86c49685-2b57-4d96-8131-a60773bc9d4c'),
-       'Long stay 2026-07-18 to 2027-07-18 with a 12-month lease (needed for school enrollment at West Cary Middle). Family relocating from Texas, daughter in 8th grade, one cat.'
-where not exists (select 1 from email_watches where label = 'Jen Forman (Glenolden)');
+select 'Jen Forman (Glenolden lease)', 'jen@jenforman.com', 'Jen Forman, Jennifer Forman',
+       (select id from properties where id = '86c49685-2b57-4d96-8131-a60773bc9d4c'), ''
+where not exists (select 1 from email_watches where label like 'Jen Forman%');
+
+update email_watches set
+  label = 'Jen Forman (Glenolden lease)',
+  match_from = 'jen@jenforman.com',
+  match_names = 'Jen Forman, Jennifer Forman',
+  property_id = (select id from properties where id = '86c49685-2b57-4d96-8131-a60773bc9d4c'),
+  context_notes = $n$Jen Forman (jen@jenforman.com) and her family live at Glenolden on a 12-month lease, 2026-07-18 to about 2027-07-18 (booked through Airbnb, with a custom lease so her daughter could enroll in school). The family relocated from Texas; her daughter is in 8th grade at West Cary Middle School. They have one cat. Jen prefers email; she also has Joanna's phone number. Address her as Jen. She is a long-term tenant living there day to day, so treat requests as a landlord would: fix things promptly, send the right vendor, keep it friendly and simple.$n$,
+  updated_at = now()
+where label like 'Jen Forman%';

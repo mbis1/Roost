@@ -114,13 +114,39 @@ async function propertyContext(propertyId: string | null): Promise<string> {
     .from("property_details")
     .select("section, data")
     .eq("property_id", propertyId);
+  // The curated knowledge note (section "ai_knowledge") goes in whole:
+  // facts, house rules, Q&A, repair history, vendors. Seeded from the
+  // project folder's 06 Properties docs; no codes or passwords in it.
+  const knowledge = (details || []).find((d) => d.section === "ai_knowledge");
+  const kText = (knowledge?.data as { text?: string } | undefined)?.text;
+  if (kText) parts.push(`PROPERTY KNOWLEDGE:\n${kText.slice(0, 12000)}`);
   for (const d of details || []) {
+    if (d.section === "ai_knowledge") continue;
     const json = JSON.stringify(d.data);
     // Never hand secrets to the AI draft (lock codes, passwords).
-    if (/password|lock|code|secret/i.test(String(d.section))) continue;
-    if (json && json !== "{}") parts.push(`${d.section}: ${json.slice(0, 800)}`);
+    if (/password|lock|code|secret|wifi/i.test(String(d.section) + json.slice(0, 200))) continue;
+    if (json && json !== "{}") parts.push(`${d.section}: ${json.slice(0, 600)}`);
   }
-  return parts.join("\n").slice(0, 4000);
+  return parts.join("\n\n").slice(0, 16000);
+}
+
+/** Her previous emails (same sender), newest first, for continuity. */
+async function priorEmails(email: AlertableEmail): Promise<string> {
+  if (!email.from_addr) return "";
+  const { data } = await supabaseAdmin
+    .from("emails")
+    .select("id, subject, body_text, received_at")
+    .eq("from_addr", email.from_addr)
+    .neq("id", email.id)
+    .order("received_at", { ascending: false })
+    .limit(3);
+  return (data || [])
+    .map(
+      (e) =>
+        `- ${e.received_at ? formatPropertyTime(e.received_at as string) : ""} "${e.subject || ""}": ` +
+        newestPart((e.body_text as string) || "").slice(0, 500).replace(/\s+/g, " ")
+    )
+    .join("\n");
 }
 
 async function aiSettings(): Promise<{ provider: string; apiKey: string; tone: string }> {
@@ -136,49 +162,103 @@ async function aiSettings(): Promise<{ provider: string; apiKey: string; tone: s
   };
 }
 
+export type AlertDraft = {
+  summary: string;          // one line: what the problem / ask is
+  urgency: "urgent" | "soon" | "routine";
+  next_step: string;        // what Jacob / Joanna should do (vendor, phone, check)
+  reply: string;            // the email reply to send, from Joanna
+};
+
+const URGENCY_ICON: Record<AlertDraft["urgency"], string> = {
+  urgent: "🔴 Urgent",
+  soon: "🟠 Soon",
+  routine: "🟢 Routine",
+};
+
+function parseDraft(raw: string): AlertDraft | null {
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try {
+    const j = JSON.parse(m[0]);
+    if (!j.reply) return null;
+    const u = String(j.urgency || "routine").toLowerCase();
+    return {
+      summary: String(j.summary || "").trim(),
+      urgency: (["urgent", "soon", "routine"].includes(u) ? u : "routine") as AlertDraft["urgency"],
+      next_step: String(j.next_step || "").trim(),
+      reply: String(j.reply).trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Stored form of a draft (email_alerts.draft_reply keeps the reply only). */
+export function draftFromStored(reply: string): AlertDraft {
+  return { summary: "", urgency: "routine", next_step: "", reply };
+}
+
 export async function draftReply(
   email: AlertableEmail,
   watch: EmailWatch
-): Promise<string> {
+): Promise<AlertDraft> {
   const ai = await aiSettings();
-  const ctx = await propertyContext(watch.property_id);
-  const message = newestPart(email.body_text || "").slice(0, 3000);
+  const [ctx, history] = await Promise.all([
+    propertyContext(watch.property_id),
+    priorEmails(email),
+  ]);
+  const message = newestPart(email.body_text || "").slice(0, 4000);
+  const firstName = (email.from_name || watch.label).split(/[\s(]/)[0] || "there";
   const prompt =
-    `Draft a reply from Joanna, the owner/host of a rental property, to this email from ${watch.label}.\n` +
-    `Tone: ${ai.tone}, warm, short (under 120 words), plain text, no subject line. ` +
-    `Answer what they asked using ONLY the facts below. If a fact isn't below, don't invent it — ` +
-    `say Joanna will check and get back to them. Never include lock codes or passwords. ` +
-    `Sign off as "Joanna".\n\n` +
-    (watch.context_notes ? `ABOUT THIS PERSON: ${watch.context_notes}\n` : "") +
-    (ctx ? `${ctx}\n` : "") +
-    `\nSUBJECT: ${email.subject || ""}\nTHEIR EMAIL:\n${message}\n\nReply:`;
+    `An email just came in from ${email.from_name || watch.label} <${email.from_addr || ""}> about the rental they live in. ` +
+    `Joanna (the owner, Jacob's mom) will reply by email.\n\n` +
+    `Do three things and return ONLY a JSON object with keys summary, urgency, next_step, reply:\n` +
+    `- summary: one short line saying what the actual problem or request is.\n` +
+    `- urgency: "urgent" (safety, water leak, no heat/AC, locked out, no power), "soon" (something broken that affects daily life), or "routine" (questions, small things, admin).\n` +
+    `- next_step: one line for Jacob — the concrete action (e.g. which vendor to call with their phone number from the knowledge below, what to check, what to send). Use ONLY vendors/facts listed below.\n` +
+    `- reply: the email reply from Joanna. Start with "Hi ${firstName}," on its own line. Respond to the specific problem she raised, using the property knowledge (e.g. known fixes, which vendor will come, house rules). ` +
+    `Warm, practical, short (under 140 words), plain text, no subject line. If a fact isn't in the knowledge, don't invent it — say Joanna will check and get back to her. ` +
+    `Never include door codes, lock codes or passwords. This is a 12-month lease tenant, not an Airbnb guest — don't mention Airbnb, reviews or check-out instructions. Sign off "Joanna".\n\n` +
+    (watch.context_notes ? `ABOUT THIS TENANT:\n${watch.context_notes}\n\n` : "") +
+    (ctx ? `${ctx}\n\n` : "") +
+    (history ? `HER RECENT EARLIER EMAILS:\n${history}\n\n` : "") +
+    `SUBJECT: ${email.subject || ""}\nHER EMAIL:\n${message}\n\nJSON:`;
   const out = await callLLMText(prompt, {
     provider: ai.provider,
     apiKey: ai.apiKey,
     systemPrompt:
-      "You write short, accurate replies for a rental property owner. You never make up facts.",
-    temperature: 0.5,
-    maxTokens: 400,
+      "You help a small rental owner answer her tenant. You are accurate, never invent facts, and output valid JSON only.",
+    temperature: 0.4,
+    maxTokens: 700,
   });
-  if (out) return out.trim();
-  const first = (watch.label.split(" ")[0] || "there").replace(/[()]/g, "");
-  return `Hi ${first},\n\nThanks for your message — I'll look into this and get back to you shortly.\n\nJoanna`;
+  const parsed = out ? parseDraft(out) : null;
+  if (parsed) return parsed;
+  if (out && !out.trim().startsWith("{")) return { ...draftFromStored(out.trim()) };
+  return {
+    summary: email.subject || "New email",
+    urgency: "routine",
+    next_step: "Read her email and reply (AI draft unavailable — check Settings → AI Configuration).",
+    reply: `Hi ${firstName},\n\nThanks for letting me know — I'll look into this and get back to you shortly.\n\nJoanna`,
+  };
 }
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-export function alertText(email: AlertableEmail, watch: EmailWatch, draft: string): string {
+export function alertText(email: AlertableEmail, watch: EmailWatch, d: AlertDraft): string {
   const msg = newestPart(email.body_text || "") || "(no text)";
   const trimmed = msg.length > 1500 ? msg.slice(0, 1500) + "\n…" : msg;
   const when = email.received_at ? formatPropertyTime(email.received_at) : "";
+  const triage =
+    (d.summary ? `🔧 <b>${esc(d.summary)}</b> · ${URGENCY_ICON[d.urgency]}\n` : "") +
+    (d.next_step ? `➡️ ${esc(d.next_step)}\n` : "");
   return (
-    `📩 <b>${esc(watch.label)}</b>\n` +
-    `<i>${esc(email.from_name || email.from_addr || "")}${when ? " · " + when : ""}</i>\n` +
-    (email.subject ? `<b>${esc(email.subject)}</b>\n` : "") +
+    `📩 <b>${esc(watch.label)}</b>${when ? " · " + when : ""}\n` +
+    (email.subject ? `<i>${esc(email.subject)}</i>\n` : "") +
+    (triage ? `\n${triage}` : "") +
     `\n${esc(trimmed)}\n\n` +
-    `💬 <b>Proposed reply</b>\n${esc(draft)}`
+    `💬 <b>Proposed reply</b>\n${esc(d.reply)}`
   );
 }
 
@@ -260,7 +340,7 @@ export async function sendEmailAlert(
   await supabaseAdmin
     .from("email_alerts")
     .update({
-      draft_reply: draft,
+      draft_reply: draft.reply,
       telegram_message_id: sent.message_id ?? null,
       status: sent.ok ? "sent" : "failed",
       error: sent.ok ? null : sent.error,

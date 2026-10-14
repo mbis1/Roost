@@ -83,7 +83,7 @@ export async function handleEmailAlertCallback(
       return;
     }
     const draft = await draftReply(email as AlertableEmail, watch as EmailWatch);
-    await supabaseAdmin.from("email_alerts").update({ draft_reply: draft }).eq("id", alertId);
+    await supabaseAdmin.from("email_alerts").update({ draft_reply: draft.reply }).eq("id", alertId);
     const text = alertText(email as AlertableEmail, watch as EmailWatch, draft);
     if (messageId) await editText(config.botToken, config.chatId, messageId, text, alertButtons(alertId));
     else await tgSend(config, text, { html: true, buttons: alertButtons(alertId) });
