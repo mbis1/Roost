@@ -422,13 +422,14 @@ function fmtDate(iso: string): string {
 function fmtTimestamp(iso: string): string {
   try {
     const d = new Date(iso);
-    const abs = d.toLocaleString(undefined, {
+    const abs = d.toLocaleString("en-US", {
+      timeZone: "America/New_York",
       month: "short",
       day: "numeric",
       year: "numeric",
       hour: "numeric",
       minute: "2-digit",
-    });
+    }) + " ET";
     const rel = formatDistanceToNow(d, { addSuffix: true });
     return `${abs} · ${rel}`;
   } catch {

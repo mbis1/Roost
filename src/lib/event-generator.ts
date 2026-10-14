@@ -22,6 +22,7 @@
 // reader tolerates both — falling back to v1 if v2 isn't set.
 
 import { supabaseAdmin } from "./supabase-admin";
+import { zonedTimeToUtc } from "./timezone";
 
 export type GeneratedEvent = {
   step_id: string;
@@ -427,13 +428,14 @@ function lastFour(phone: string): string {
   return digits.slice(-4) || "????";
 }
 
+// Wall-clock times are Eastern (PROPERTY_TZ), not UTC — "8 AM" means
+// 8 AM in Cary. Fixed 2026-10-13; before that, steps fired 4–5 h early.
 function setLocalTime(
   dateIso: string,
   hour: number,
   minute: number
 ): string {
-  const d = new Date(`${dateIso}T${pad(hour)}:${pad(minute)}:00Z`);
-  return d.toISOString();
+  return zonedTimeToUtc(dateIso, hour, minute).toISOString();
 }
 
 function subtractHoursAtTime(
@@ -441,9 +443,8 @@ function subtractHoursAtTime(
   hours: number,
   hourOfDay: number
 ): string {
-  const base = new Date(`${dateIso}T${pad(hourOfDay)}:00:00Z`);
-  base.setUTCHours(base.getUTCHours() - hours);
-  return base.toISOString();
+  const base = zonedTimeToUtc(dateIso, hourOfDay, 0);
+  return new Date(base.getTime() - hours * 3600 * 1000).toISOString();
 }
 
 function addDays(dateIso: string, days: number): string {

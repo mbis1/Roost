@@ -520,14 +520,15 @@ function HighlightVars({ text }: { text: string }) {
 
 function fmtAbsolute(iso: string): string {
   try {
-    return new Date(iso).toLocaleString(undefined, {
+    return new Date(iso).toLocaleString("en-US", {
+      timeZone: "America/New_York",
       weekday: "short",
       month: "short",
       day: "numeric",
       year: "numeric",
       hour: "numeric",
       minute: "2-digit",
-    });
+    }) + " ET";
   } catch {
     return iso;
   }
