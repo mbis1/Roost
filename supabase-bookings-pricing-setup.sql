@@ -94,5 +94,5 @@ CREATE POLICY authenticated_users_all_access
 -- Skip if you'd rather paste the feed URL through the UI.
 -- ────────────────────────────────────────────────────────────────────
 -- UPDATE properties
--- SET ical_feeds = '[{"platform":"airbnb","url":"https://www.airbnb.com/calendar/ical/809228673745540112.ics?t=a64ab88623d4456a92fdfd3c6acccbc0","last_synced_at":null}]'::jsonb
+-- SET ical_feeds = '[{"platform":"airbnb","url":"https://www.airbnb.com/calendar/ical/809228673745540112.ics?t=<REDACTED>","last_synced_at":null}]'::jsonb
 -- WHERE name ILIKE '%glenolden%' OR nickname ILIKE '%glenolden%';
