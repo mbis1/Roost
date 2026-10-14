@@ -1,7 +1,7 @@
 -- supabase-email-alerts-setup.sql
 --
 -- Email alerts (2026-10-13): when an email from a watched sender lands in
--- the inbox, Roost texts Milo on Telegram with the message and an
+-- the inbox, Roost sends a Telegram message with the message and an
 -- AI-drafted reply. Safe to re-run.
 --
 --   email_watches  who to watch (address and/or names), linked property
@@ -50,7 +50,7 @@ do $$ begin
 end $$;
 
 -- Seed: Jen Forman, Glenolden 12-month lease tenant. Emails Joanna at
--- anjeyka@yahoo.com; alerts go to Jacob's Telegram. Re-running updates it.
+-- anjeyka@yahoo.com; alerts go to the configured Telegram chat. Re-running updates it.
 insert into email_watches (label, match_from, match_names, property_id, context_notes)
 select 'Jen Forman (Glenolden lease)', 'jen@jenforman.com', 'Jen Forman, Jennifer Forman',
        (select id from properties where id = '86c49685-2b57-4d96-8131-a60773bc9d4c'), ''

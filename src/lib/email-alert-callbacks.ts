@@ -6,7 +6,7 @@
 
 import { supabaseAdmin } from "./supabase-admin";
 import { answerCallbackQuery, getTelegramConfig, sendPlainTelegramMessage } from "./telegram";
-import { alertButtons, alertText, draftReply, tgSend, type AlertableEmail, type EmailWatch } from "./email-alerts";
+import { alertButtons, alertText, buildClaudePrompt, draftReply, tgSend, type AlertableEmail, type EmailWatch } from "./email-alerts";
 
 async function editText(botToken: string, chatId: string, messageId: number, text: string, buttons: unknown | null) {
   await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
@@ -45,6 +45,31 @@ export async function handleEmailAlertCallback(
   if (action === "ea_copy") {
     await answerCallbackQuery(config.botToken, callbackId, "Reply sent below — long-press to copy");
     await sendPlainTelegramMessage(config, (alert.draft_reply as string) || "");
+    return;
+  }
+
+  if (action === "ea_prompt") {
+    await answerCallbackQuery(config.botToken, callbackId, "Prompt below — long-press to copy, paste into Claude");
+    const { data: email } = await supabaseAdmin
+      .from("emails")
+      .select("id, from_addr, from_name, subject, body_text, received_at")
+      .eq("id", alert.email_id)
+      .maybeSingle();
+    const { data: watch } = await supabaseAdmin
+      .from("email_watches")
+      .select("*")
+      .eq("id", alert.watch_id)
+      .maybeSingle();
+    if (!email || !watch) {
+      await tgSend(config, "Couldn't build the prompt: the email or watch no longer exists.");
+      return;
+    }
+    const prompt = await buildClaudePrompt(
+      email as AlertableEmail,
+      watch as EmailWatch,
+      (alert.draft_reply as string) || undefined
+    );
+    await sendPlainTelegramMessage(config, prompt);
     return;
   }
 

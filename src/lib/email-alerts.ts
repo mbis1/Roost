@@ -1,7 +1,7 @@
 // src/lib/email-alerts.ts
 //
 // Email alerts (2026-10-13). When a newly ingested email matches an
-// active row in `email_watches`, send Milo a Telegram message with the
+// active row in `email_watches`, send a Telegram message to the configured chat with the
 // email and an AI-drafted reply, with buttons:
 //   📋 Copy reply  → sends the reply alone as plain text (long-press to copy)
 //   🔄 Redraft     → new AI draft
@@ -89,7 +89,7 @@ export function newestPart(body: string): string {
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-async function propertyContext(propertyId: string | null): Promise<string> {
+export async function propertyContext(propertyId: string | null): Promise<string> {
   if (!propertyId) return "";
   const parts: string[] = [];
   const { data: p } = await supabaseAdmin
@@ -131,7 +131,7 @@ async function propertyContext(propertyId: string | null): Promise<string> {
 }
 
 /** Her previous emails (same sender), newest first, for continuity. */
-async function priorEmails(email: AlertableEmail): Promise<string> {
+export async function priorEmails(email: AlertableEmail): Promise<string> {
   if (!email.from_addr) return "";
   const { data } = await supabaseAdmin
     .from("emails")
@@ -165,7 +165,7 @@ async function aiSettings(): Promise<{ provider: string; apiKey: string; tone: s
 export type AlertDraft = {
   summary: string;          // one line: what the problem / ask is
   urgency: "urgent" | "soon" | "routine";
-  next_step: string;        // what Jacob / Joanna should do (vendor, phone, check)
+  next_step: string;        // what to do next (vendor, phone, check)
   reply: string;            // the email reply to send, from Joanna
 };
 
@@ -211,11 +211,11 @@ export async function draftReply(
   const firstName = (email.from_name || watch.label).split(/[\s(]/)[0] || "there";
   const prompt =
     `An email just came in from ${email.from_name || watch.label} <${email.from_addr || ""}> about the rental they live in. ` +
-    `Joanna (the owner, Jacob's mom) will reply by email.\n\n` +
+    `Joanna (the owner) will reply by email.\n\n` +
     `Do three things and return ONLY a JSON object with keys summary, urgency, next_step, reply:\n` +
     `- summary: one short line saying what the actual problem or request is.\n` +
     `- urgency: "urgent" (safety, water leak, no heat/AC, locked out, no power), "soon" (something broken that affects daily life), or "routine" (questions, small things, admin).\n` +
-    `- next_step: one line for Jacob — the concrete action (e.g. which vendor to call with their phone number from the knowledge below, what to check, what to send). Use ONLY vendors/facts listed below.\n` +
+    `- next_step: one line for whoever handles this — the concrete action (e.g. which vendor to call with their phone number from the knowledge below, what to check, what to send). Use ONLY vendors/facts listed below.\n` +
     `- reply: the email reply from Joanna. Start with "Hi ${firstName}," on its own line. Respond to the specific problem she raised, using the property knowledge (e.g. known fixes, which vendor will come, house rules). ` +
     `Warm, practical, short (under 140 words), plain text, no subject line. If a fact isn't in the knowledge, don't invent it — say Joanna will check and get back to her. ` +
     `Never include door codes, lock codes or passwords. This is a 12-month lease tenant, not an Airbnb guest — don't mention Airbnb, reviews or check-out instructions. Sign off "Joanna".\n\n` +
@@ -242,6 +242,36 @@ export async function draftReply(
   };
 }
 
+/**
+ * A ready-to-paste prompt for Claude: who she is, the house facts, her
+ * earlier emails and the new one. Kept under Telegram's 4096-char limit
+ * (property knowledge is trimmed to fit). No codes or passwords.
+ */
+export async function buildClaudePrompt(
+  email: AlertableEmail,
+  watch: EmailWatch,
+  draft?: string
+): Promise<string> {
+  const [ctx, history] = await Promise.all([
+    propertyContext(watch.property_id),
+    priorEmails(email),
+  ]);
+  const msg = newestPart(email.body_text || "").slice(0, 1500);
+  const head =
+    `Help me answer an email from our tenant on behalf of my mom, Joanna (the owner). ` +
+    `Tell me what she's asking, whether I need to send a vendor or do anything, and draft a short, warm reply from Joanna.\n\n` +
+    (watch.context_notes ? `TENANT: ${watch.context_notes}\n\n` : `TENANT: ${watch.label}\n\n`);
+  const tail =
+    (history ? `HER EARLIER EMAILS:\n${history.slice(0, 700)}\n\n` : "") +
+    `NEW EMAIL from ${email.from_name || watch.label} <${email.from_addr || ""}>` +
+    (email.received_at ? ` (${formatPropertyTime(email.received_at)})` : "") +
+    `\nSubject: ${email.subject || ""}\n${msg}` +
+    (draft ? `\n\nROOST'S DRAFT (improve it if needed):\n${draft.slice(0, 600)}` : "");
+  const room = 3900 - head.length - tail.length - 30;
+  const facts = room > 200 ? `HOUSE FACTS:\n${ctx.slice(0, room)}\n\n` : "";
+  return head + facts + tail;
+}
+
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -254,7 +284,7 @@ export function alertText(email: AlertableEmail, watch: EmailWatch, d: AlertDraf
     (d.summary ? `🔧 <b>${esc(d.summary)}</b> · ${URGENCY_ICON[d.urgency]}\n` : "") +
     (d.next_step ? `➡️ ${esc(d.next_step)}\n` : "");
   return (
-    `📩 <b>${esc(watch.label)}</b>${when ? " · " + when : ""}\n` +
+    `📩 <b>New email · ${esc(watch.label)}</b>${when ? "\n" + when : ""}\n` +
     (email.subject ? `<i>${esc(email.subject)}</i>\n` : "") +
     (triage ? `\n${triage}` : "") +
     `\n${esc(trimmed)}\n\n` +
@@ -266,9 +296,12 @@ export function alertButtons(alertId: string) {
   return [
     [
       { text: "📋 Copy reply", callback_data: `ea_copy:${alertId}` },
-      { text: "🔄 Redraft", callback_data: `ea_redraft:${alertId}` },
+      { text: "🧠 Claude prompt", callback_data: `ea_prompt:${alertId}` },
     ],
-    [{ text: "✅ Handled", callback_data: `ea_done:${alertId}` }],
+    [
+      { text: "🔄 Redraft", callback_data: `ea_redraft:${alertId}` },
+      { text: "✅ Handled", callback_data: `ea_done:${alertId}` },
+    ],
   ];
 }
 

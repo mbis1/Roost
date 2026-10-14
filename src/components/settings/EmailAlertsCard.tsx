@@ -1,7 +1,7 @@
 "use client";
 
 // Settings → Email alerts. Who Roost watches in the inbox; a match texts
-// Milo on Telegram with the email + a proposed reply.
+// the owner's Telegram with the email + a proposed reply.
 
 import { useEffect, useState } from "react";
 import { Card, Button, Input, TextArea, FormField } from "@/components/ui";

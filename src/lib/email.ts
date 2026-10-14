@@ -262,7 +262,7 @@ export async function processAnjeykaEmails(
           }
         }
 
-        // Email alerts — text Milo if this sender is watched. Best-effort.
+        // Email alerts — Telegram ping if this sender is watched. Best-effort.
         if (watches.length > 0 && primaryTag !== "spam") {
           const alertErr = await alertIfWatched(
             {
