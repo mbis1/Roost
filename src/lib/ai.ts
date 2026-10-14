@@ -75,12 +75,14 @@ async function callHuggingFaceRaw(prompt: string, apiKey: string): Promise<strin
 }
 
 /**
- * Groq via OpenAI-compatible /chat/completions. Free tier model:
- * llama-3.1-8b-instant (fast, ~200ms). Returns the assistant text.
+ * Groq via OpenAI-compatible /chat/completions (model: GROQ_MODEL,
+ * default openai/gpt-oss-20b). Returns the assistant text.
  *
  * `systemPrompt` and `temperature` are optional — different callers
  * (refine vs categorize) want different behavior.
  */
+const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
+
 async function callGroq(
   prompt: string,
   apiKey: string,
@@ -96,14 +98,19 @@ async function callGroq(
       Authorization: "Bearer " + apiKey,
       "Content-Type": "application/json",
     },
+    // llama-3.1-8b-instant was shut down by Groq on 2026-08-16; every AI
+    // call silently fell back after that. gpt-oss-20b is Groq's named
+    // replacement. It reasons before answering, so it gets a larger token
+    // budget and low reasoning effort. Override with GROQ_MODEL if needed.
     body: JSON.stringify({
-      model: "llama-3.1-8b-instant",
+      model: GROQ_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
-      max_tokens: opts?.maxTokens ?? 400,
+      max_tokens: Math.max(1500, (opts?.maxTokens ?? 400) * 3),
       temperature: opts?.temperature ?? 0.7,
+      ...(GROQ_MODEL.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {}),
     }),
   });
   if (!response.ok) {
